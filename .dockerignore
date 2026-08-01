@@ -1,0 +1,27 @@
+# Version control / CI
+.git
+.github
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+*.egg-info/
+
+# Local config / secrets — never bake into the image
+.env
+*.db
+*.sqlite3
+
+# Docs / dev
+*.md
+!README.md
+plans/
+scratchpad/
