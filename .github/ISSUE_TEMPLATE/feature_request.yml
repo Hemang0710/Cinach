@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an idea or enhancement for Cinch
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep in mind Cinch's non-negotiable constraints: human-in-the-loop
+        approval, no fabrication of resume content, and no scraping of prohibited
+        sources. Features that weaken these will not be accepted.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem does this solve? Who benefits?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or change you'd like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about.
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraint check
+      options:
+        - label: This does not introduce unattended bulk auto-apply
+          required: true
+        - label: This does not enable fabrication of resume content
+          required: true
+        - label: This does not rely on scraping LinkedIn/Indeed
+          required: true
