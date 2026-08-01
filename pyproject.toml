@@ -19,28 +19,28 @@ classifiers = [
 ]
 
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-    "python-telegram-bot>=22,<23",
-    "sqlalchemy[asyncio]>=2.0",
-    "asyncpg>=0.30",
-    "aiosqlite>=0.20",
-    "alembic>=1.14",
-    "pydantic>=2.10",
-    "pydantic-settings>=2.7",
-    "structlog>=24.4",
-    "apscheduler>=3.11",
-    "httpx>=0.28",
-    "sentry-sdk[fastapi]>=2.19",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.0",
+    "python-telegram-bot>=22.8,<23",
+    "sqlalchemy[asyncio]>=2.0.51",
+    "asyncpg>=0.31.0",
+    "aiosqlite>=0.22.1",
+    "alembic>=1.18.5",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "structlog>=26.1.0",
+    "apscheduler>=3.11.3",
+    "httpx>=0.28.1",
+    "sentry-sdk[fastapi]>=2.66.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.9",
-    "mypy>=1.14",
-    "pytest>=8.3",
-    "pytest-asyncio>=0.25",
-    "pytest-cov>=6.0",
+    "ruff>=0.16.0",
+    "mypy>=2.3.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
 ]
 
 [project.urls]
