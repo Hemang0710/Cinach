@@ -1,70 +1,53 @@
-# CLAUDE.md
+# CLAUDE.md — Job Application Assistant
 
-Guidance for AI coding agents (and humans) working in this repository.
-
-## What Cinch is
-
-An open-source, **human-in-the-loop** job application assistant:
-
-1. **Resume tailoring** — an LLM rewrites/reorders a user's *master* resume to
-   match a job description. It **rephrases real experience only** — never invents
-   employers, titles, dates, metrics, or skills.
-2. **Job discovery + Telegram approval** — discovers jobs from official APIs,
-   tailors the resume, and sends the user the job + tailored resume with
-   **Approve / Skip** inline buttons. **Nothing is submitted until the user
-   approves.**
-
-## Non-negotiable constraints
-
-- Human-in-the-loop is mandatory. No unattended bulk auto-apply.
-- Do NOT scrape LinkedIn/Indeed. Prefer official/licensed job APIs (Adzuna
-  first) behind a pluggable `JobSource` interface.
-- Never fabricate resume content; a validation step must flag any tailored
-  bullet not grounded in the master resume.
-- Never commit secrets. Config via environment / `pydantic-settings`.
-- Provider-agnostic LLM layer (Anthropic / OpenAI / Google) behind one interface.
-
-## Architecture (`src/cinch/`)
-
-| Package      | Responsibility                                                    |
-| ------------ | ----------------------------------------------------------------- |
-| `api/`       | FastAPI app, webhook route (secret-token verified), health probes |
-| `bot/`       | Telegram handlers, inline keyboards, callback routing (thin)      |
-| `services/`  | Orchestration + domain logic; no framework imports leak in        |
-| `providers/` | Adapters: `LLMProvider`, `JobSource`, optional `Submitter`        |
-| `domain/`    | Pydantic/dataclass models + status enums                          |
-| `db/`        | SQLAlchemy models, repositories, session factory, Alembic         |
-| `core/`      | config (`pydantic-settings`), logging, security, rate limiting    |
-
-Use dependency injection (pass sessions/providers in). Bot/API layers are
-stateless so they scale horizontally.
+Open-source, human-in-the-loop job-application assistant: LLM resume tailoring +
+a Telegram bot that sends jobs with Approve/Skip buttons. Nothing is submitted
+without explicit user approval.
 
 ## Commands
+- Install:      `uv sync`
+- Run API:      `uv run uvicorn app.api.main:app --reload`
+- Tests:        `uv run pytest`  (single test: `uv run pytest path::test_name`)
+- Lint/format:  `uv run ruff check --fix .` and `uv run ruff format .`
+- Types:        `uv run mypy src/`
+- Migrations:   `uv run alembic upgrade head` / `uv run alembic revision --autogenerate -m "msg"`
 
-```bash
-uv sync --extra dev            # install deps
-uv run python -m cinch.api     # run the API (http://localhost:8000)
-uv run ruff check .            # lint
-uv run ruff format .           # format
-uv run mypy                    # strict type check
-uv run pytest                  # tests + coverage
-```
+## Architecture (keep layers separate)
+- `bot/` Telegram handlers/keyboards — thin, no business logic.
+- `api/` FastAPI webhook (verifies secret token) + health endpoints.
+- `services/` orchestration + domain logic — NO framework imports.
+- `providers/` pluggable adapters: `LLMProvider`, `JobSource`, optional `Submitter`.
+- `domain/` models (User, Resume, Job, Application) + status enums.
+- `db/` SQLAlchemy 2.0 async models, repositories, session factory, Alembic.
+- `core/` config (pydantic-settings), logging, security, rate limiting.
+Business logic receives dependencies via injection; no global singletons.
 
-## Phased build plan
+## Do / Don't
+- DO rephrase REAL resume content only. NEVER invent employers, titles, dates,
+  metrics, or skills. Every tailored bullet must be grounded in the master resume.
+- DO keep humans in the loop: discover → tailor → ask → user approves → act.
+- DON'T build unattended bulk auto-apply. DON'T scrape LinkedIn/Indeed; use
+  official APIs behind `JobSource`.
+- DON'T commit secrets. Config via env/pydantic-settings only. `.env` is local.
+- DON'T add a dependency without a clear reason.
 
-Build **one phase per session**, then STOP for human review. See
-[PROMPT.md](PROMPT.md) for the full plan.
+## Security rules (YOU MUST)
+- Verify `X-Telegram-Bot-Api-Secret-Token` on every webhook request with a
+  constant-time compare; return 403 on mismatch.
+- Authorize every callback_query against the owning user_id.
+- Validate all external input with Pydantic; reject unexpected shapes.
+- Rate-limit + backoff outbound Telegram sends. Redact PII from logs.
+- Idempotent writes: approving/applying the same job twice is a no-op.
 
-- **Phase 0** — Scaffolding (this repo's current state). ✅
-- **Phase 1** — Domain + DB (models, repositories, Alembic migration).
-- **Phase 2** — LLM tailoring + anti-fabrication validator.
-- **Phase 3** — Telegram bot (webhook, onboarding, Approve/Skip, auth).
-- **Phase 4** — Job discovery + orchestration (Adzuna, scheduler, idempotency).
-- **Phase 5** — Hardening + docs.
-- **Phase 6** (optional) — Playwright assisted submission (ToS sign-off required).
+## Testing expectations
+- Every service/provider has unit tests with mocked LLM + HTTP (no live calls).
+- Async tests for the webhook. A test MUST prove fabricated resume content is
+  rejected. Target ≥80% coverage on `services/`.
+- Run ruff, mypy, and pytest before declaring work done; show the output.
 
-## Conventions
-
-- Type-hint everything; pass `mypy --strict` and `ruff` with zero errors.
-- Validate all external input with Pydantic.
-- Conventional Commits; GitHub Flow branching (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+## Workflow
+- Explore → plan → code → verify. Use plan mode for multi-file changes.
+- After a phase, use a fresh subagent to review the diff for security/correctness.
+- Prefer running single tests during iteration. Commit with descriptive messages.
+- Ask before: schema/migration changes, new external services, anything touching
+  secrets or ToS. These need human review.
