@@ -11,6 +11,7 @@ from enum import StrEnum
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     environment: Literal["local", "staging", "production"] = "local"
     log_level: str = "INFO"
     log_json: bool = True
+    # ASGI bind port. PaaS platforms (Render, Heroku, Cloud Run) inject ``PORT``.
+    port: int = 8000
 
     # --- Database ----------------------------------------------------------
     # Local dev defaults to SQLite (aiosqlite); production uses PostgreSQL
@@ -103,6 +106,20 @@ class Settings(BaseSettings):
     # --- Observability -----------------------------------------------------
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.0
+
+    @field_validator("database_url")
+    @classmethod
+    def _ensure_async_pg_driver(cls, value: str) -> str:
+        """Rewrite PaaS ``postgres[ql]://`` URLs to the async driver SQLAlchemy needs.
+
+        Render/Heroku expose ``postgres://`` connection strings, but the async engine
+        requires an explicit ``postgresql+asyncpg://`` driver. Already-qualified URLs
+        (``…+asyncpg``, ``sqlite+aiosqlite``) pass through untouched.
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+asyncpg://" + value[len(prefix) :]
+        return value
 
     @property
     def is_production(self) -> bool:

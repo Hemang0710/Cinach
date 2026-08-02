@@ -1,0 +1,49 @@
+# Render Blueprint for Cinch — https://render.com/docs/blueprint-spec
+#
+# One-click deploy: push this repo to GitHub, then in Render:
+#   New  →  Blueprint  →  pick this repository  →  Apply.
+# After the first sync, fill in the `sync: false` secrets in the service's
+# Environment tab (see DEPLOY.md for what each one is).
+
+databases:
+  - name: cinch-db
+    databaseName: cinch
+    user: cinch
+    plan: free # ⚠️ free Postgres is removed after 30 days — use a paid plan for real data
+
+services:
+  - type: web
+    name: cinch
+    runtime: docker
+    plan: free # ⚠️ free web services SLEEP when idle, which stops the in-process
+    #            schedulers. Use 'starter' or higher before enabling DISCOVERY_ENABLED
+    #            or SUBMISSION_ENABLED, so cycles actually run.
+    healthCheckPath: /healthz
+    autoDeploy: true
+    # Run migrations, then start the app — on every boot, on all plans. Idempotent.
+    dockerCommand: sh -c "alembic upgrade head && python -m cinch.api"
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL # normalized to postgresql+asyncpg:// by the app
+        fromDatabase:
+          name: cinch-db
+          property: connectionString
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true # Render generates a strong random value
+      - key: TELEGRAM_WEBHOOK_URL
+        sync: false # set to https://<your-service-name>.onrender.com
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false # Fernet key — see DEPLOY.md to generate
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: DISCOVERY_ENABLED
+        value: "false"
+      - key: SUBMISSION_ENABLED
+        value: "false"

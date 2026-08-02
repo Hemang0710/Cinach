@@ -36,6 +36,11 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
 
+# Alembic config + migrations so `alembic upgrade head` can run inside the container
+# (e.g. a Render pre-deploy step). Small and dependency-free.
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app migrations ./migrations
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
