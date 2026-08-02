@@ -7,6 +7,15 @@
 
 from __future__ import annotations
 
+from cinch.providers.jobs import (
+    AdzunaJobSource,
+    FakeJobSource,
+    JobQuery,
+    JobSource,
+    JobSourceError,
+    RawJob,
+    get_job_source,
+)
 from cinch.providers.llm import (
     AnthropicProvider,
     FakeLLMProvider,
@@ -17,10 +26,17 @@ from cinch.providers.llm import (
 )
 
 __all__ = [
+    "AdzunaJobSource",
     "AnthropicProvider",
+    "FakeJobSource",
     "FakeLLMProvider",
     "GroundingJudge",
+    "JobQuery",
+    "JobSource",
+    "JobSourceError",
     "LLMError",
     "LLMProvider",
+    "RawJob",
+    "get_job_source",
     "get_llm_provider",
 ]
