@@ -21,9 +21,13 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    """An httpx AsyncClient wired to the ASGI app in-process (no network)."""
-    app = create_app(settings=settings)
+async def client(settings: Settings, db: Database) -> AsyncIterator[AsyncClient]:
+    """An httpx AsyncClient wired to the ASGI app in-process (no network).
+
+    The database is injected so ``app.state.db`` is populated without running the
+    lifespan (ASGITransport doesn't), which the DB-aware ``/readyz`` probe needs.
+    """
+    app = create_app(settings=settings, db=db)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac

@@ -9,19 +9,25 @@ tests inject their own ``db``/``bot_app`` instead, which the factory places on
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Literal
+from uuid import uuid4
 
-from fastapi import FastAPI
+import structlog
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from cinch import __version__
 from cinch.api.webhook import register_webhook
 from cinch.bot.application import build_bot_application
 from cinch.core.config import Settings, get_settings
-from cinch.core.logging import configure_logging
+from cinch.core.logging import configure_logging, get_logger
+from cinch.core.observability import init_sentry
 from cinch.db.session import Database
+
+logger = get_logger(__name__)
 
 
 class HealthResponse(BaseModel):
@@ -54,6 +60,7 @@ def create_app(
     """
     settings = settings or get_settings()
     configure_logging(log_level=settings.log_level, json_logs=settings.log_json)
+    init_sentry(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -99,6 +106,20 @@ def create_app(
     app.state.db = db
     app.state.bot_app = bot_app
 
+    @app.middleware("http")
+    async def request_id_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Bind a correlation id to structlog for the request; echo it back."""
+        request_id = request.headers.get("X-Request-ID") or uuid4().hex
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            structlog.contextvars.clear_contextvars()
+        response.headers["X-Request-ID"] = request_id
+        return response
+
     @app.get("/healthz", response_model=HealthResponse, tags=["health"])
     async def healthz() -> HealthResponse:
         """Liveness probe: the process is up and serving requests."""
@@ -106,7 +127,16 @@ def create_app(
 
     @app.get("/readyz", response_model=ReadyResponse, tags=["health"])
     async def readyz() -> ReadyResponse:
-        """Readiness probe: the app is ready to accept traffic."""
+        """Readiness probe: verifies the database is reachable."""
+        database: Database | None = app.state.db
+        if database is None:
+            raise HTTPException(status_code=503, detail="database not configured")
+        try:
+            async with database.session() as session:
+                await session.execute(text("SELECT 1"))
+        except Exception as exc:
+            logger.warning("readiness_check_failed", error=str(exc))
+            raise HTTPException(status_code=503, detail="database unavailable") from exc
         return ReadyResponse()
 
     if bot_app is not None or settings.telegram_bot_token:

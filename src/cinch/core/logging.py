@@ -10,6 +10,38 @@ from __future__ import annotations
 import logging
 
 import structlog
+from structlog.typing import EventDict, WrappedLogger
+
+# Keys that must never appear verbatim in logs (secrets + PII). Matched case-insensitively.
+_SENSITIVE_KEYS = frozenset(
+    {
+        "token",
+        "secret",
+        "secret_token",
+        "password",
+        "authorization",
+        "api_key",
+        "apikey",
+        "anthropic_api_key",
+        "openai_api_key",
+        "google_api_key",
+        "adzuna_app_key",
+        "telegram_bot_token",
+        "telegram_webhook_secret",
+        "encryption_key",
+        "sentry_dsn",
+        "content",
+        "resume",
+    }
+)
+
+
+def _redact_sensitive(logger: WrappedLogger, method_name: str, event_dict: EventDict) -> EventDict:
+    """Mask any sensitive keys so a stray secret/PII kwarg never lands in a log line."""
+    for key in list(event_dict):
+        if key.lower() in _SENSITIVE_KEYS:
+            event_dict[key] = "***"
+    return event_dict
 
 
 def configure_logging(*, log_level: str = "INFO", json_logs: bool = True) -> None:
@@ -29,6 +61,7 @@ def configure_logging(*, log_level: str = "INFO", json_logs: bool = True) -> Non
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
+        _redact_sensitive,
     ]
 
     renderer: structlog.typing.Processor = (

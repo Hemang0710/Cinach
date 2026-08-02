@@ -33,6 +33,7 @@ dependencies = [
     "httpx>=0.28.1",
     "sentry-sdk[fastapi]>=2.66.1",
     "anthropic>=0.69",
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]
@@ -120,7 +121,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=cinch --cov-report=term-missing --cov-branch"
+addopts = "--cov=cinch --cov-report=term-missing --cov-branch --cov-fail-under=80"
 
 # ---------------------------------------------------------------------------
 # coverage
