@@ -55,6 +55,15 @@ cover/
 *.mo
 *.pot
 
+# Local SQLite databases (dev). These may hold resume PII — never commit them.
+cinch.db
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Django stuff:
 *.log
 local_settings.py
