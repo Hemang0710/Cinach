@@ -13,8 +13,9 @@ from telegram import Bot
 from telegram.constants import ParseMode
 
 from cinch.bot.keyboards import approve_skip_markup
-from cinch.bot.messages import format_application_message
+from cinch.bot.messages import format_application_message, format_submission_message
 from cinch.domain.models import Job, TailoringResult
+from cinch.providers.submit.base import SubmissionOutcome
 
 
 async def send_application(
@@ -55,4 +56,35 @@ class TelegramNotifier:
             job=job,
             tailoring=tailoring,
             application_id=application_id,
+        )
+
+
+async def send_submission_update(
+    bot: Bot, *, chat_id: int, job: Job, outcome: SubmissionOutcome, detail: str
+) -> None:
+    """Send a submission outcome message (no buttons — it's a terminal notification)."""
+    await bot.send_message(
+        chat_id=chat_id,
+        text=format_submission_message(job, outcome, detail),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+class TelegramSubmissionNotifier:
+    """Adapts a Telegram ``Bot`` to the submission layer's ``SubmissionNotifier`` protocol.
+
+    Lives in the bot layer so ``services/`` never imports Telegram; the submission
+    orchestrator depends only on the protocol.
+    """
+
+    def __init__(self, bot: Bot) -> None:
+        self._bot = bot
+
+    async def notify_submission(
+        self, *, chat_id: int, job: Job, outcome: SubmissionOutcome, detail: str
+    ) -> None:
+        """Deliver a submission outcome via Telegram (rate-limited by AIORateLimiter)."""
+        await send_submission_update(
+            self._bot, chat_id=chat_id, job=job, outcome=outcome, detail=detail
         )

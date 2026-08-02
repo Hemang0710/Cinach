@@ -109,5 +109,8 @@ class ApplicationORM(TimestampMixin, Base):
     tailored_resume_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True
     )
+    # Submission outcome (Phase 6). Nullable: unset until the pipeline attempts a submit.
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submission_detail: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     user: Mapped[UserORM] = relationship(back_populates="applications")

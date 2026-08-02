@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     discovery_interval_minutes: int = 60
     discovery_results_per_user: int = 5  # per cycle — politeness + rate-limit headroom
 
+    # --- Assisted submission (Phase 6, EXPERIMENTAL) -----------------------
+    # OFF by default. Auto-submitting to job sites may violate their Terms of
+    # Service; only enable with explicit sign-off. Never bypasses CAPTCHAs/logins —
+    # those hand back to the user. Only user-APPROVED applications are ever submitted.
+    submission_enabled: bool = False
+    submission_interval_minutes: int = 5
+    submission_headless: bool = True
+    submission_timeout_seconds: int = 60
+
     # --- Security ----------------------------------------------------------
     # Fernet key for encrypting resume PII at rest. Generate with
     # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.

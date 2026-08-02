@@ -40,6 +40,10 @@ class MasterResume(DomainModel):
     this content.
     """
 
+    # Contact fields — what an application form needs. Optional (backward-compatible).
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
     summary: str = ""
     skills: list[str] = Field(default_factory=list)
     experiences: list[ExperienceEntry] = Field(default_factory=list)

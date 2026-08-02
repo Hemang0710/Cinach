@@ -43,6 +43,7 @@ stateless so they scale horizontally.
 
 ```bash
 uv sync --extra dev            # install deps
+uv sync --extra submit         # optional: Phase 6 submission (then: playwright install chromium)
 uv run python -m cinch.api     # run the API (http://localhost:8000)
 uv run ruff check .            # lint
 uv run ruff format .           # format
@@ -61,7 +62,8 @@ Build **one phase per session**, then STOP for human review. See
 - **Phase 3** — Telegram bot (webhook, onboarding, Approve/Skip, auth).
 - **Phase 4** — Job discovery + orchestration (Adzuna, scheduler, idempotency).
 - **Phase 5** — Hardening + docs.
-- **Phase 6** (optional) — Playwright assisted submission (ToS sign-off required).
+- **Phase 6** (optional) — Playwright assisted submission. ✅ Off by default; only
+  auto-submits **user-Approved** applications and never bypasses logins/CAPTCHAs.
 
 ## Conventions
 

@@ -52,6 +52,20 @@ token, LLM API keys). Contributors and operators must:
 - Sentry runs with `send_default_pii=False` and scrubs request bodies, so PII and
   secrets are not shipped to the error backend.
 
+## Assisted submission (Phase 6)
+
+Optional Playwright-based submission is **off by default** (`SUBMISSION_ENABLED=false`)
+and is not installed unless the `submit` extra is selected. When operators enable it:
+
+- It only ever submits applications the user has **already Approved** on Telegram — there
+  is no unattended bulk auto-apply.
+- It **never bypasses logins or CAPTCHAs**; those are handed back to the user with the
+  apply link.
+- The submitted document is the user's **real master resume** (no LLM at submit time, so
+  nothing is fabricated), and the browser adapter logs no URLs or resume content.
+- **Terms-of-Service risk is the operator's responsibility.** Auto-submitting to job
+  sites may violate their ToS; enabling submission is a deliberate, at-your-own-risk choice.
+
 ## Scope
 
 This policy covers the Cinch codebase. Vulnerabilities in third-party

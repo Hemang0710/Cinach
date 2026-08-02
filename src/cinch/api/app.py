@@ -79,16 +79,23 @@ def create_app(
                     secret_token=settings.telegram_webhook_secret,
                 )
 
-        # Discovery scheduler: only when explicitly enabled and a bot exists to notify.
-        scheduler = None
-        if settings.discovery_enabled and app.state.bot_app is not None:
-            from cinch.api.scheduler import start_discovery_scheduler
+        # Background schedulers: each runs only when explicitly enabled and a bot exists.
+        schedulers: list[Any] = []
+        if app.state.bot_app is not None:
+            from cinch.api.scheduler import (
+                start_discovery_scheduler,
+                start_submission_scheduler,
+            )
 
-            scheduler = start_discovery_scheduler(app.state.db, settings, app.state.bot_app.bot)
+            bot = app.state.bot_app.bot
+            if settings.discovery_enabled:
+                schedulers.append(start_discovery_scheduler(app.state.db, settings, bot))
+            if settings.submission_enabled:
+                schedulers.append(start_submission_scheduler(app.state.db, settings, bot))
         try:
             yield
         finally:
-            if scheduler is not None:
+            for scheduler in schedulers:
                 scheduler.shutdown(wait=False)
             if owns_bot and app.state.bot_app is not None:
                 await app.state.bot_app.stop()
