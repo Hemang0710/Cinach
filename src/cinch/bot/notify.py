@@ -33,3 +33,26 @@ async def send_application(
         reply_markup=approve_skip_markup(application_id),
         disable_web_page_preview=True,
     )
+
+
+class TelegramNotifier:
+    """Adapts a Telegram ``Bot`` to the discovery layer's ``JobNotifier`` protocol.
+
+    Lives in the bot layer so ``services/`` never imports Telegram; the discovery
+    orchestrator depends only on the protocol.
+    """
+
+    def __init__(self, bot: Bot) -> None:
+        self._bot = bot
+
+    async def notify(
+        self, *, chat_id: int, job: Job, tailoring: TailoringResult, application_id: UUID
+    ) -> None:
+        """Deliver a tailored application via Telegram (rate-limited by AIORateLimiter)."""
+        await send_application(
+            self._bot,
+            chat_id=chat_id,
+            job=job,
+            tailoring=tailoring,
+            application_id=application_id,
+        )

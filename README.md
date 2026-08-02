@@ -84,6 +84,24 @@ Cinch is built in reviewable phases (see [PROMPT.md](PROMPT.md)):
 - **Phase 5** — Hardening + docs.
 - **Phase 6** *(optional)* — Playwright assisted submission.
 
+## Job sources & terms of service
+
+Cinch discovers roles only through **official, licensed job APIs** — never by
+scraping. The first adapter is [Adzuna](https://developer.adzuna.com/):
+
+- **Credentials** are per-developer (`ADZUNA_APP_ID` / `ADZUNA_APP_KEY`), supplied
+  via environment only and never committed.
+- **Rate limits are respected** — discovery runs on an infrequent interval
+  (`DISCOVERY_INTERVAL_MINUTES`, default 60) with a small per-user result cap
+  (`DISCOVERY_RESULTS_PER_USER`, default 5), and a single non-overlapping scheduler job.
+- **Attribution + linking** — every posting sent to you links to Adzuna's official
+  `redirect_url` ("Jobs by Adzuna"); Cinch never republishes listings.
+- **Off by default** — the discovery scheduler only runs when `DISCOVERY_ENABLED=true`.
+  Enabling it is a deliberate operational choice.
+
+Swapping in another licensed source is a matter of implementing the `JobSource`
+interface; the orchestration layer is source-agnostic.
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the

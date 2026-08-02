@@ -75,6 +75,15 @@ class Settings(BaseSettings):
     # --- Job sources -------------------------------------------------------
     adzuna_app_id: str | None = None
     adzuna_app_key: str | None = None
+    adzuna_country: str = "us"  # Adzuna is country-scoped (us, gb, in, ...)
+    adzuna_where: str | None = None  # optional global location filter
+
+    # --- Discovery / scheduler ---------------------------------------------
+    # The discovery scheduler is OFF unless explicitly enabled — nothing runs in
+    # dev/tests inadvertently, and enabling it is a deliberate ops decision.
+    discovery_enabled: bool = False
+    discovery_interval_minutes: int = 60
+    discovery_results_per_user: int = 5  # per cycle — politeness + rate-limit headroom
 
     # --- Observability -----------------------------------------------------
     sentry_dsn: str | None = None
