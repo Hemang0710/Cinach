@@ -85,8 +85,15 @@ class Settings(BaseSettings):
     discovery_interval_minutes: int = 60
     discovery_results_per_user: int = 5  # per cycle — politeness + rate-limit headroom
 
+    # --- Security ----------------------------------------------------------
+    # Fernet key for encrypting resume PII at rest. Generate with
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    # When unset, resume content is stored plaintext (a startup warning is logged).
+    encryption_key: str | None = None
+
     # --- Observability -----------------------------------------------------
     sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = 0.0
 
     @property
     def is_production(self) -> bool:

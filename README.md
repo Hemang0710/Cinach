@@ -77,12 +77,39 @@ Clean separation of concerns under `src/cinch/`:
 Cinch is built in reviewable phases (see [PROMPT.md](PROMPT.md)):
 
 - **Phase 0** — Scaffolding (repo structure, tooling, CI). ✅
-- **Phase 1** — Domain models + database.
-- **Phase 2** — LLM tailoring + anti-fabrication validator.
-- **Phase 3** — Telegram bot (webhook, onboarding, Approve/Skip).
-- **Phase 4** — Job discovery + orchestration (Adzuna, scheduler).
-- **Phase 5** — Hardening + docs.
-- **Phase 6** *(optional)* — Playwright assisted submission.
+- **Phase 1** — Domain models + database. ✅
+- **Phase 2** — LLM tailoring + anti-fabrication validator. ✅
+- **Phase 3** — Telegram bot (webhook, onboarding, Approve/Skip). ✅
+- **Phase 4** — Job discovery + orchestration (Adzuna, scheduler). ✅
+- **Phase 5** — Hardening + docs (PII encryption, Sentry, health, coverage). ✅
+- **Phase 6** *(optional)* — Playwright assisted submission (ToS sign-off required).
+
+## Configuration
+
+All configuration is via environment variables (see [.env.example](.env.example));
+never commit a real `.env`. Key settings:
+
+| Variable | Purpose | Default |
+| -------- | ------- | ------- |
+| `DATABASE_URL` | SQLAlchemy async URL (SQLite locally, Postgres in prod) | SQLite file |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` | Bot auth + webhook verification | — |
+| `TELEGRAM_WEBHOOK_URL` | Public HTTPS base; when set, the webhook self-registers | — |
+| `LLM_PROVIDER` / `ANTHROPIC_API_KEY` / `LLM_MODEL` | Tailoring LLM | anthropic / `claude-opus-4-8` |
+| `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` / `ADZUNA_COUNTRY` | Job source (official API) | — / — / `us` |
+| `DISCOVERY_ENABLED` / `DISCOVERY_INTERVAL_MINUTES` | Discovery scheduler (off by default) | `false` / `60` |
+| `ENCRYPTION_KEY` | Fernet key encrypting resume PII at rest (plaintext if unset) | — |
+| `SENTRY_DSN` | Error monitoring (off if unset) | — |
+
+## Observability
+
+- **Structured logs** — JSON logs (structlog) in production; every request carries a
+  correlation `X-Request-ID`, and a redaction step masks secrets/PII so they never
+  reach a log line.
+- **Error monitoring** — Sentry initialises only when `SENTRY_DSN` is set, PII-safe
+  (`send_default_pii=False` plus request-body scrubbing).
+- **Health probes** — `GET /healthz` (liveness) and `GET /readyz` (readiness — verifies
+  the database is reachable, `503` when it isn't).
+- **PII at rest** — resume content is encrypted with Fernet when `ENCRYPTION_KEY` is set.
 
 ## Job sources & terms of service
 

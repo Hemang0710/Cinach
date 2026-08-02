@@ -11,7 +11,6 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -22,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from cinch.db.base import Base, TimestampMixin, uuid_pk
+from cinch.db.types import EncryptedJSON
 from cinch.domain.enums import ApplicationStatus, JobSourceName
 
 
@@ -47,10 +47,10 @@ class UserORM(TimestampMixin, Base):
 class ResumeORM(TimestampMixin, Base):
     """Persisted resume. ``content`` holds structured resume JSON.
 
-    PII BOUNDARY: ``content`` contains personal data. Phase 1 stores it as
-    plaintext JSON; Phase 5 replaces this column's type with an application-level
-    encrypted type (e.g. Fernet) keyed by ``ENCRYPTION_KEY`` — no schema change to
-    other columns required.
+    PII BOUNDARY: ``content`` contains personal data. It is stored through
+    :class:`~cinch.db.types.EncryptedJSON`, which Fernet-encrypts the payload at rest
+    when ``ENCRYPTION_KEY`` is set (plaintext fallback for local dev). The column's
+    underlying type stays JSON, so no schema migration is required.
     """
 
     __tablename__ = "resumes"
@@ -60,7 +60,7 @@ class ResumeORM(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     is_master: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    content: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    content: Mapped[dict[str, object]] = mapped_column(EncryptedJSON, nullable=False)
 
     user: Mapped[UserORM] = relationship(back_populates="resumes")
 

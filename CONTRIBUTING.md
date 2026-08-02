@@ -70,8 +70,11 @@ Run these locally; CI enforces the same:
 uv run ruff check .            # lint
 uv run ruff format --check .   # formatting
 uv run mypy                    # strict type checking
-uv run pytest                  # tests + coverage
+uv run pytest                  # tests + coverage (fails under 80%)
 ```
+
+`pytest` enforces a minimum coverage of **80%** (`--cov-fail-under=80`); CI runs the
+same matrix on Python 3.11–3.14.
 
 Optionally install the pre-commit hooks so these run automatically:
 
