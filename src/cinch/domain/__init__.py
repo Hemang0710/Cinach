@@ -16,13 +16,17 @@ from cinch.domain.models import (
     TailoringResult,
     User,
 )
+from cinch.domain.resume import EducationEntry, ExperienceEntry, MasterResume
 
 __all__ = [
     "Application",
     "ApplicationStatus",
     "DomainModel",
+    "EducationEntry",
+    "ExperienceEntry",
     "Job",
     "JobSourceName",
+    "MasterResume",
     "Resume",
     "TailoredBullet",
     "TailoringResult",
