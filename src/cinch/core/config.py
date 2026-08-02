@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # Secret token echoed in the X-Telegram-Bot-Api-Secret-Token header and
     # verified (constant-time) on the webhook route.
     telegram_webhook_secret: str | None = None
+    # Path the webhook is served on (relative to the app root).
+    telegram_webhook_path: str = "/telegram/webhook"
+    # Public HTTPS base URL of this app. When set, the webhook is registered with
+    # Telegram on startup; leave unset for local development (no public URL).
+    telegram_webhook_url: str | None = None
 
     # --- LLM providers -----------------------------------------------------
     llm_provider: LLMProviderName = LLMProviderName.ANTHROPIC

@@ -8,8 +8,12 @@ from __future__ import annotations
 
 from cinch.services.grounding import GroundingCheck, GroundingValidator
 from cinch.services.tailoring import TailoringError, TailoringService
+from cinch.services.workflow import ApprovalDecision, ApprovalService, DecisionOutcome
 
 __all__ = [
+    "ApprovalDecision",
+    "ApprovalService",
+    "DecisionOutcome",
     "GroundingCheck",
     "GroundingValidator",
     "TailoringError",

@@ -101,6 +101,20 @@ class ResumeRepository(BaseRepository[ResumeORM, Resume]):
         )
         return self._to_domain(orm) if orm is not None else None
 
+    async def set_master(self, user_id: UUID, content: dict[str, object]) -> Resume:
+        """Upsert the user's master resume — replace its content, or create it."""
+        orm = await self._session.scalar(
+            select(ResumeORM).where(ResumeORM.user_id == user_id, ResumeORM.is_master.is_(True))
+        )
+        if orm is None:
+            orm = ResumeORM(user_id=user_id, content=content, is_master=True)
+            self._session.add(orm)
+        else:
+            orm.content = content
+        await self._session.flush()
+        await self._session.refresh(orm)
+        return self._to_domain(orm)
+
 
 class JobRepository(BaseRepository[JobORM, Job]):
     """Discovered jobs, deduplicated by ``(source, external_id)``."""
