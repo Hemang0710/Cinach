@@ -32,6 +32,7 @@ dependencies = [
     "apscheduler>=3.11.3",
     "httpx>=0.28.1",
     "sentry-sdk[fastapi]>=2.66.1",
+    "anthropic>=0.69",
 ]
 
 [project.optional-dependencies]
