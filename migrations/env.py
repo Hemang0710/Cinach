@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from cinch.core.config import get_settings
 
-# Import models for their side effect: registering tables on Base.metadata.
-from cinch.db import models as _models  # noqa: F401
-from cinch.db.base import Base
+# Importing the models module registers every ORM table on the shared metadata;
+# referencing it below (models.Base.metadata) makes that dependency explicit.
+from cinch.db import models
 
 config = context.config
 
@@ -29,7 +29,7 @@ if config.config_file_name is not None:
 # Inject the runtime database URL (async driver) into Alembic's config.
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
-target_metadata = Base.metadata
+target_metadata = models.Base.metadata
 
 
 def _configure(connection: Connection) -> None:

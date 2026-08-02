@@ -16,12 +16,19 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 
-import cinch.db.models  # noqa: F401  (register tables on the metadata)
 from cinch.core.config import get_settings
 from cinch.db.base import Base
+from cinch.db.models import ApplicationORM, JobORM, ResumeORM, UserORM
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TABLES = {"users", "resumes", "jobs", "applications"}
+# Deriving from the ORM classes both registers their tables on Base.metadata and
+# keeps this set in lock-step with the models.
+EXPECTED_TABLES = {
+    UserORM.__tablename__,
+    ResumeORM.__tablename__,
+    JobORM.__tablename__,
+    ApplicationORM.__tablename__,
+}
 
 
 @pytest.fixture
