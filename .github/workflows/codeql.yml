@@ -31,7 +31,9 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: python
-          queries: security-and-quality
+          # Security-focused suite only; Ruff owns code-quality/maintainability
+          # lint (unused imports, dead globals, style) so the two don't overlap.
+          queries: security-extended
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
