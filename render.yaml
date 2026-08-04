@@ -20,8 +20,8 @@ services:
     #            or SUBMISSION_ENABLED, so cycles actually run.
     healthCheckPath: /healthz
     autoDeploy: true
-    # Run migrations, then start the app — on every boot, on all plans. Idempotent.
-    dockerCommand: sh -c "alembic upgrade head && python -m cinch.api"
+    # No dockerCommand: the image's CMD already runs `alembic upgrade head` then the
+    # app (see Dockerfile), so migrations apply on every boot, on all plans.
     envVars:
       - key: ENVIRONMENT
         value: production
