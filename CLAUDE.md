@@ -22,7 +22,7 @@ An open-source, **human-in-the-loop** job application assistant:
 - Never fabricate resume content; a validation step must flag any tailored
   bullet not grounded in the master resume.
 - Never commit secrets. Config via environment / `pydantic-settings`.
-- Provider-agnostic LLM layer (Anthropic / OpenAI / Google) behind one interface.
+- Provider-agnostic LLM layer (Anthropic / Groq / OpenAI / Google) behind one interface.
 
 ## Architecture (`src/cinch/`)
 

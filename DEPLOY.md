@@ -18,7 +18,7 @@ Both end at the same place: [Register the Telegram webhook](#4-register-the-tele
 | Secret | Where to get it |
 | ------ | --------------- |
 | `TELEGRAM_BOT_TOKEN` | Message [@BotFather](https://t.me/BotFather) → `/newbot`. |
-| `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/). (Or use OpenAI/Google — set `LLM_PROVIDER` + `LLM_MODEL`.) |
+| LLM key | **Free:** [console.groq.com](https://console.groq.com/) → API key (no card), then set `LLM_PROVIDER=groq`, `GROQ_API_KEY=…`, `LLM_MODEL=llama-3.3-70b-versatile`. Or paid Anthropic: `ANTHROPIC_API_KEY` from [console.anthropic.com](https://console.anthropic.com/). |
 | `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Register at [developer.adzuna.com](https://developer.adzuna.com/). Needed only if you enable job discovery. |
 | `ENCRYPTION_KEY` | Generate a Fernet key (below) — encrypts resume PII at rest. |
 

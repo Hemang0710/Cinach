@@ -19,6 +19,7 @@ class LLMProviderName(StrEnum):
     """Supported LLM providers behind the provider-agnostic interface."""
 
     ANTHROPIC = "anthropic"
+    GROQ = "groq"  # free, OpenAI-compatible (console.groq.com)
     OPENAI = "openai"
     GOOGLE = "google"
 
@@ -65,6 +66,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_api_key: str | None = None
+    # Groq: free & OpenAI-compatible. Set llm_provider=groq, a Llama model as
+    # llm_model (e.g. "llama-3.3-70b-versatile"), and groq_api_key.
+    groq_api_key: str | None = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     # Model id for the active provider. Defaults to a current Claude model; when
     # llm_provider is not Anthropic, set this to that provider's model id.
     # NOTE: current Claude models reject temperature/top_p/top_k (they 400), so

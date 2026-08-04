@@ -25,7 +25,7 @@ produce better applications than spraying hundreds of generic ones.
   grounded in your master resume.
 - **Plays fair** — uses official/licensed job APIs (Adzuna first) behind a
   pluggable interface, not scraping.
-- **Provider-agnostic LLM** — Anthropic / OpenAI / Google behind one interface.
+- **Provider-agnostic LLM** — Anthropic, **Groq (free)**, OpenAI, Google behind one interface.
 
 ## Quickstart
 
