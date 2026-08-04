@@ -11,6 +11,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -31,10 +32,11 @@ class UserORM(TimestampMixin, Base):
     __tablename__ = "users"
 
     id: Mapped[UUID] = uuid_pk()
-    # Telegram ids are 64-bit; store as strings to avoid platform int limits and
-    # keep them opaque. Unique so a Telegram account maps to exactly one user.
-    telegram_user_id: Mapped[int] = mapped_column(unique=True, nullable=False)
-    telegram_chat_id: Mapped[int] = mapped_column(nullable=False)
+    # Telegram ids are 64-bit — use BigInteger, not the default 32-bit Integer, or
+    # large ids (e.g. 6_984_602_416) overflow on PostgreSQL. Unique so a Telegram
+    # account maps to exactly one user.
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    telegram_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     resumes: Mapped[list[ResumeORM]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
