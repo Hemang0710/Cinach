@@ -23,6 +23,7 @@ from cinch import __version__
 from cinch.api.webhook import register_webhook
 from cinch.bot.application import build_bot_application
 from cinch.core.config import Settings, get_settings
+from cinch.core.crypto import validate_encryption_key
 from cinch.core.logging import configure_logging, get_logger
 from cinch.core.observability import init_sentry
 from cinch.db.session import Database
@@ -61,6 +62,9 @@ def create_app(
     settings = settings or get_settings()
     configure_logging(log_level=settings.log_level, json_logs=settings.log_json)
     init_sentry(settings)
+    # Fail fast on a malformed ENCRYPTION_KEY — otherwise the first resume upload
+    # crashes inside SQLAlchemy with no user-facing error and nothing is saved.
+    validate_encryption_key(settings.encryption_key)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
