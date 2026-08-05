@@ -38,12 +38,17 @@ def init_sentry(settings: Settings) -> None:
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.starlette import StarletteIntegration
 
-    sentry_sdk.init(
-        dsn=settings.sentry_dsn,
-        environment=settings.environment,
-        send_default_pii=False,
-        traces_sample_rate=settings.sentry_traces_sample_rate,
-        before_send=_scrub,
-        integrations=[StarletteIntegration(), FastApiIntegration()],
-    )
+    try:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.environment,
+            send_default_pii=False,
+            traces_sample_rate=settings.sentry_traces_sample_rate,
+            before_send=_scrub,
+            integrations=[StarletteIntegration(), FastApiIntegration()],
+        )
+    except Exception as exc:
+        # A misconfigured DSN must never take the whole service down — Sentry is optional.
+        logger.warning("sentry_init_failed", error=str(exc))
+        return
     logger.info("sentry_initialised", environment=settings.environment)

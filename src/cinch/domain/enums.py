@@ -14,8 +14,9 @@ class ApplicationStatus(StrEnum):
 
     Flow: a job is ``DISCOVERED``, then ``TAILORED`` once the resume is rewritten,
     then ``PENDING_APPROVAL`` while the user decides. The user's choice moves it to
-    ``APPROVED`` or ``SKIPPED``; an approved application becomes ``SUBMITTED`` (or
-    ``FAILED`` if submission errors out).
+    ``APPROVED`` or ``SKIPPED``. An approved application is picked up by the optional
+    submission pipeline (Phase 6), which drives it to ``SUBMITTED``, ``NEEDS_HUMAN``
+    (handed back for the user to finish — login/CAPTCHA/unknown form), or ``FAILED``.
     """
 
     DISCOVERED = "discovered"
@@ -24,6 +25,7 @@ class ApplicationStatus(StrEnum):
     APPROVED = "approved"
     SKIPPED = "skipped"
     SUBMITTED = "submitted"
+    NEEDS_HUMAN = "needs_human"  # auto-submit unsafe/unsupported — user finishes manually
     FAILED = "failed"
 
 

@@ -23,6 +23,7 @@ from cinch import __version__
 from cinch.api.webhook import register_webhook
 from cinch.bot.application import build_bot_application
 from cinch.core.config import Settings, get_settings
+from cinch.core.crypto import validate_encryption_key
 from cinch.core.logging import configure_logging, get_logger
 from cinch.core.observability import init_sentry
 from cinch.db.session import Database
@@ -61,6 +62,9 @@ def create_app(
     settings = settings or get_settings()
     configure_logging(log_level=settings.log_level, json_logs=settings.log_json)
     init_sentry(settings)
+    # Fail fast on a malformed ENCRYPTION_KEY — otherwise the first resume upload
+    # crashes inside SQLAlchemy with no user-facing error and nothing is saved.
+    validate_encryption_key(settings.encryption_key)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -79,16 +83,23 @@ def create_app(
                     secret_token=settings.telegram_webhook_secret,
                 )
 
-        # Discovery scheduler: only when explicitly enabled and a bot exists to notify.
-        scheduler = None
-        if settings.discovery_enabled and app.state.bot_app is not None:
-            from cinch.api.scheduler import start_discovery_scheduler
+        # Background schedulers: each runs only when explicitly enabled and a bot exists.
+        schedulers: list[Any] = []
+        if app.state.bot_app is not None:
+            from cinch.api.scheduler import (
+                start_discovery_scheduler,
+                start_submission_scheduler,
+            )
 
-            scheduler = start_discovery_scheduler(app.state.db, settings, app.state.bot_app.bot)
+            bot = app.state.bot_app.bot
+            if settings.discovery_enabled:
+                schedulers.append(start_discovery_scheduler(app.state.db, settings, bot))
+            if settings.submission_enabled:
+                schedulers.append(start_submission_scheduler(app.state.db, settings, bot))
         try:
             yield
         finally:
-            if scheduler is not None:
+            for scheduler in schedulers:
                 scheduler.shutdown(wait=False)
             if owns_bot and app.state.bot_app is not None:
                 await app.state.bot_app.stop()

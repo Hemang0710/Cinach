@@ -14,7 +14,7 @@ def main() -> None:
         "cinch.api.app:create_app",
         factory=True,
         host="0.0.0.0",  # noqa: S104 - containerised; bind all interfaces intentionally
-        port=8000,
+        port=settings.port,
         log_level=settings.log_level.lower(),
         reload=settings.environment == "local",
     )

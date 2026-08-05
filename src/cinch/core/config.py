@@ -11,6 +11,7 @@ from enum import StrEnum
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,7 @@ class LLMProviderName(StrEnum):
     """Supported LLM providers behind the provider-agnostic interface."""
 
     ANTHROPIC = "anthropic"
+    GROQ = "groq"  # free, OpenAI-compatible (console.groq.com)
     OPENAI = "openai"
     GOOGLE = "google"
 
@@ -40,6 +42,8 @@ class Settings(BaseSettings):
     environment: Literal["local", "staging", "production"] = "local"
     log_level: str = "INFO"
     log_json: bool = True
+    # ASGI bind port. PaaS platforms (Render, Heroku, Cloud Run) inject ``PORT``.
+    port: int = 8000
 
     # --- Database ----------------------------------------------------------
     # Local dev defaults to SQLite (aiosqlite); production uses PostgreSQL
@@ -62,6 +66,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_api_key: str | None = None
+    # Groq: free & OpenAI-compatible. Set llm_provider=groq, a Llama model as
+    # llm_model (e.g. "llama-3.3-70b-versatile"), and groq_api_key.
+    groq_api_key: str | None = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     # Model id for the active provider. Defaults to a current Claude model; when
     # llm_provider is not Anthropic, set this to that provider's model id.
     # NOTE: current Claude models reject temperature/top_p/top_k (they 400), so
@@ -85,6 +93,15 @@ class Settings(BaseSettings):
     discovery_interval_minutes: int = 60
     discovery_results_per_user: int = 5  # per cycle — politeness + rate-limit headroom
 
+    # --- Assisted submission (Phase 6, EXPERIMENTAL) -----------------------
+    # OFF by default. Auto-submitting to job sites may violate their Terms of
+    # Service; only enable with explicit sign-off. Never bypasses CAPTCHAs/logins —
+    # those hand back to the user. Only user-APPROVED applications are ever submitted.
+    submission_enabled: bool = False
+    submission_interval_minutes: int = 5
+    submission_headless: bool = True
+    submission_timeout_seconds: int = 60
+
     # --- Security ----------------------------------------------------------
     # Fernet key for encrypting resume PII at rest. Generate with
     # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
@@ -94,6 +111,20 @@ class Settings(BaseSettings):
     # --- Observability -----------------------------------------------------
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.0
+
+    @field_validator("database_url")
+    @classmethod
+    def _ensure_async_pg_driver(cls, value: str) -> str:
+        """Rewrite PaaS ``postgres[ql]://`` URLs to the async driver SQLAlchemy needs.
+
+        Render/Heroku expose ``postgres://`` connection strings, but the async engine
+        requires an explicit ``postgresql+asyncpg://`` driver. Already-qualified URLs
+        (``…+asyncpg``, ``sqlite+aiosqlite``) pass through untouched.
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+asyncpg://" + value[len(prefix) :]
+        return value
 
     @property
     def is_production(self) -> bool:

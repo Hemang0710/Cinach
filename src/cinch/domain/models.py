@@ -81,6 +81,9 @@ class Application(DomainModel):
     job_id: UUID
     status: ApplicationStatus
     tailored_resume_id: UUID | None = None
+    # Populated by the Phase 6 submission pipeline; ``None`` until an attempt is made.
+    submitted_at: datetime | None = None
+    submission_detail: str | None = None  # outcome note / handoff URL / error (no PII)
     created_at: datetime
     updated_at: datetime
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 from html import escape
 
 from cinch.domain.models import Job, TailoringResult
+from cinch.providers.submit.base import SubmissionOutcome
 
 
 def format_application_message(job: Job, tailoring: TailoringResult) -> str:
@@ -33,3 +34,23 @@ def format_application_message(job: Job, tailoring: TailoringResult) -> str:
 def decision_ack(*, approved: bool) -> str:
     """Short confirmation shown after a decision is recorded."""
     return "✅ Approved — recorded." if approved else "⏭️ Skipped."
+
+
+def format_submission_message(job: Job, outcome: SubmissionOutcome, detail: str) -> str:
+    """Render the outcome of an assisted-submission attempt as an HTML message body."""
+    title, company = escape(job.title), escape(job.company)
+    link = f'<a href="{escape(str(job.url))}">Open the posting</a>'
+    if outcome is SubmissionOutcome.SUBMITTED:
+        return (
+            f"✅ <b>Applied</b> — {title} at {company}.\n"
+            f"I submitted your application on your behalf.\n{link}"
+        )
+    if outcome is SubmissionOutcome.NEEDS_HUMAN:
+        return (
+            f"🔗 <b>Needs you</b> — {title} at {company}.\n"
+            f"I couldn't safely auto-apply ({escape(detail)}). Please finish it yourself:\n{link}"
+        )
+    return (
+        f"⚠️ <b>Couldn't apply</b> — {title} at {company} ({escape(detail)}).\n"
+        f"You can still apply directly:\n{link}"
+    )

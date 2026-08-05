@@ -33,6 +33,7 @@ dependencies = [
     "httpx>=0.28.1",
     "sentry-sdk[fastapi]>=2.66.1",
     "anthropic>=0.69",
+    "openai>=1.50",  # also drives Groq (free, OpenAI-compatible) via a custom base URL
     "cryptography>=43",
 ]
 
@@ -43,6 +44,11 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
+]
+# Optional: Phase 6 assisted submission. Lazy-imported, off by default. After
+# installing this extra, run `playwright install chromium` to fetch the browser.
+submit = [
+    "playwright>=1.49",
 ]
 
 [project.urls]
@@ -115,6 +121,11 @@ files = ["src", "tests"]
 module = ["apscheduler.*"]
 ignore_missing_imports = true
 
+# Playwright is the optional `submit` extra — not installed in the type-check env.
+[[tool.mypy.overrides]]
+module = ["playwright.*"]
+ignore_missing_imports = true
+
 # ---------------------------------------------------------------------------
 # pytest
 # ---------------------------------------------------------------------------
@@ -129,6 +140,10 @@ addopts = "--cov=cinch --cov-report=term-missing --cov-branch --cov-fail-under=8
 [tool.coverage.run]
 branch = true
 source = ["cinch"]
+# The Playwright adapter drives a real Chromium browser via the optional `submit`
+# extra (`playwright install chromium`) and cannot run in CI. Its pure, testable
+# logic lives in providers/submit/render.py; the browser automation is integration-only.
+omit = ["*/providers/submit/playwright.py"]
 
 [tool.coverage.report]
 show_missing = true

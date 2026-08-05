@@ -36,6 +36,11 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
 
+# Alembic config + migrations so `alembic upgrade head` can run inside the container
+# (e.g. a Render pre-deploy step). Small and dependency-free.
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app migrations ./migrations
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -48,4 +53,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"
 
-CMD ["python", "-m", "cinch.api"]
+# Shell-form CMD: Docker runs it via `sh -c`, so migrations apply and then the app
+# execs (replacing the shell, so it receives signals) on every container start.
+CMD alembic upgrade head && exec python -m cinch.api

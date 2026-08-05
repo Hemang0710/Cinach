@@ -11,10 +11,12 @@ from cinch.core.config import LLMProviderName, Settings
 from cinch.providers.llm.anthropic import AnthropicProvider
 from cinch.providers.llm.base import GroundingJudge, LLMError, LLMProvider
 from cinch.providers.llm.fake import FakeLLMProvider
+from cinch.providers.llm.groq import GroqProvider
 
 __all__ = [
     "AnthropicProvider",
     "FakeLLMProvider",
+    "GroqProvider",
     "GroundingJudge",
     "LLMError",
     "LLMProvider",
@@ -33,5 +35,7 @@ def get_llm_provider(settings: Settings) -> LLMProvider:
     """
     if settings.llm_provider is LLMProviderName.ANTHROPIC:
         return AnthropicProvider.from_settings(settings)
+    if settings.llm_provider is LLMProviderName.GROQ:
+        return GroqProvider.from_settings(settings)
     # OpenAI / Google adapters arrive in a later iteration; fail loudly, not silently.
     raise LLMError(f"No LLM adapter implemented for provider: {settings.llm_provider.value}")

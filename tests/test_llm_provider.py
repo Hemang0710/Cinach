@@ -10,12 +10,15 @@ import httpx
 import pytest
 from anthropic import APIError, AsyncAnthropic
 from anthropic.types import TextBlock
+from openai import APIError as OpenAIAPIError
+from openai import AsyncOpenAI
 
 from cinch.core.config import LLMProviderName, Settings
 from cinch.providers.llm import get_llm_provider
 from cinch.providers.llm.anthropic import AnthropicProvider
 from cinch.providers.llm.base import LLMError
 from cinch.providers.llm.fake import FakeLLMProvider
+from cinch.providers.llm.groq import GroqProvider
 
 
 def _message(text: str, *, stop_reason: str = "end_turn") -> SimpleNamespace:
@@ -71,3 +74,40 @@ async def test_fake_provider_scripts_and_exhausts() -> None:
     assert await provider.complete(system="s", user="u", max_tokens=8) == "one"
     with pytest.raises(LLMError):
         await provider.complete(system="s", user="u", max_tokens=8)
+
+
+def _groq_client_returning(content: str | None) -> AsyncOpenAI:
+    client = Mock()
+    choice = SimpleNamespace(message=SimpleNamespace(content=content))
+    client.chat.completions.create = AsyncMock(return_value=SimpleNamespace(choices=[choice]))
+    return cast(AsyncOpenAI, client)
+
+
+async def test_groq_complete_returns_text() -> None:
+    provider = GroqProvider(_groq_client_returning("Hi from Llama"), "llama-3.3-70b-versatile")
+    assert await provider.complete(system="s", user="u", max_tokens=64) == "Hi from Llama"
+
+
+async def test_groq_empty_content_raises() -> None:
+    provider = GroqProvider(_groq_client_returning(None), "llama-3.3-70b-versatile")
+    with pytest.raises(LLMError):
+        await provider.complete(system="s", user="u", max_tokens=64)
+
+
+async def test_groq_api_error_becomes_llm_error() -> None:
+    client = Mock()
+    err = OpenAIAPIError("boom", request=httpx.Request("POST", "https://api.groq.com"), body=None)
+    client.chat.completions.create = AsyncMock(side_effect=err)
+    provider = GroqProvider(cast(AsyncOpenAI, client), "llama-3.3-70b-versatile")
+    with pytest.raises(LLMError):
+        await provider.complete(system="s", user="u", max_tokens=64)
+
+
+def test_groq_from_settings_requires_api_key() -> None:
+    with pytest.raises(LLMError):
+        GroqProvider.from_settings(Settings(_env_file=None, groq_api_key=None))
+
+
+def test_factory_selects_groq() -> None:
+    settings = Settings(_env_file=None, llm_provider=LLMProviderName.GROQ, groq_api_key="test-key")
+    assert isinstance(get_llm_provider(settings), GroqProvider)

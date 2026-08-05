@@ -21,3 +21,8 @@ def test_init_sentry_initialises_with_dsn() -> None:
     mock_init.assert_called_once()
     kwargs = mock_init.call_args.kwargs
     assert kwargs["send_default_pii"] is False  # PII-safe by construction
+
+
+def test_init_sentry_survives_bad_dsn() -> None:
+    # A malformed DSN must warn and continue, never crash the app at startup.
+    init_sentry(Settings(_env_file=None, sentry_dsn="not-a-valid-dsn"))

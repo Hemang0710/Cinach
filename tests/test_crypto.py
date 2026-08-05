@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 from cryptography.fernet import Fernet
 
-from cinch.core.crypto import cipher_from_env, decrypt_json, encrypt_json
+from cinch.core.crypto import (
+    InvalidEncryptionKeyError,
+    cipher_from_env,
+    decrypt_json,
+    encrypt_json,
+    validate_encryption_key,
+)
 
 
 def test_roundtrip_with_key() -> None:
@@ -34,3 +40,16 @@ def test_cipher_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cipher_from_env() is None
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
     assert cipher_from_env() is not None
+
+
+def test_validate_encryption_key_accepts_valid_or_absent() -> None:
+    validate_encryption_key(None)  # unset is fine (plaintext fallback)
+    validate_encryption_key("")  # blank treated as unset
+    validate_encryption_key(Fernet.generate_key().decode())  # valid, no raise
+
+
+def test_validate_encryption_key_rejects_malformed() -> None:
+    # A truncated / pasted-with-whitespace key must fail LOUDLY at startup rather
+    # than crash silently on the first DB write (real Render incident, Aug 2026).
+    with pytest.raises(InvalidEncryptionKeyError, match="Fernet"):
+        validate_encryption_key("not-a-valid-fernet-key")

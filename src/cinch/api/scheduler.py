@@ -13,13 +13,15 @@ from typing import Any
 
 from telegram import Bot
 
-from cinch.bot.notify import TelegramNotifier
+from cinch.bot.notify import TelegramNotifier, TelegramSubmissionNotifier
 from cinch.core.config import Settings
 from cinch.core.logging import get_logger
 from cinch.db.session import Database
 from cinch.providers.jobs import get_job_source
 from cinch.providers.llm import get_llm_provider
+from cinch.providers.submit import get_submitter
 from cinch.services.discovery import DiscoveryService, DiscoverySummary
+from cinch.services.submission import SubmissionService, SubmissionSummary
 from cinch.services.tailoring import TailoringService
 
 logger = get_logger(__name__)
@@ -62,4 +64,43 @@ def start_discovery_scheduler(db: Database, settings: Settings, bot: Bot) -> Any
     )
     scheduler.start()
     logger.info("discovery_scheduler_started", interval_minutes=settings.discovery_interval_minutes)
+    return scheduler
+
+
+async def run_submission_cycle(db: Database, settings: Settings, bot: Bot) -> SubmissionSummary:
+    """Build the pipeline and run one idempotent submission cycle.
+
+    Gated on ``submission_enabled``: when off, this returns immediately without ever
+    constructing the (Playwright) submitter, so the optional extra is not required.
+    """
+    if not settings.submission_enabled:
+        return SubmissionSummary()
+    submitter = get_submitter(settings)  # raises if the 'submit' extra is not installed
+    notifier = TelegramSubmissionNotifier(bot)
+    service = SubmissionService(db, submitter=submitter, notifier=notifier)
+    return await service.run()
+
+
+def start_submission_scheduler(db: Database, settings: Settings, bot: Bot) -> Any:
+    """Create, start, and return an AsyncIOScheduler running the submission cycle.
+
+    One interval job, non-overlapping (``max_instances=1``, ``coalesce=True``), mirroring
+    the discovery scheduler. The caller owns shutdown.
+    """
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        run_submission_cycle,
+        trigger="interval",
+        minutes=settings.submission_interval_minutes,
+        args=[db, settings, bot],
+        id="submission",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+    logger.info(
+        "submission_scheduler_started", interval_minutes=settings.submission_interval_minutes
+    )
     return scheduler

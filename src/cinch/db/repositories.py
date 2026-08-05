@@ -8,6 +8,7 @@ insert surfaces as a clean re-fetch rather than poisoning the transaction.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Generic, TypeVar
 from uuid import UUID
 
@@ -212,6 +213,53 @@ class ApplicationRepository(BaseRepository[ApplicationORM, Application]):
         if orm is None:
             return None
         orm.status = status
+        await self._session.flush()
+        await self._session.refresh(orm)
+        return self._to_domain(orm)
+
+    async def list_by_status(self, status: ApplicationStatus) -> list[Application]:
+        """Return every application currently in ``status`` (the submission work queue)."""
+        result = await self._session.scalars(
+            select(ApplicationORM).where(ApplicationORM.status == status)
+        )
+        return [self._to_domain(orm) for orm in result.all()]
+
+    async def claim_for_submission(self, application_id: UUID) -> Application | None:
+        """Atomically claim an ``APPROVED`` application for a submission attempt.
+
+        Moves it to a pessimistic ``FAILED`` ("interrupted") state so that, once the
+        caller commits, a crash mid-submit leaves it non-``APPROVED`` and it is never
+        re-submitted. Returns the claimed application, or ``None`` if it was not (or is
+        no longer) ``APPROVED`` — making the claim a safe, idempotent no-op the second time.
+        """
+        orm = await self._session.get(ApplicationORM, application_id)
+        if orm is None or orm.status != ApplicationStatus.APPROVED:
+            return None
+        orm.status = ApplicationStatus.FAILED
+        orm.submission_detail = "submission interrupted before completion"
+        await self._session.flush()
+        await self._session.refresh(orm)
+        return self._to_domain(orm)
+
+    async def record_submission(
+        self,
+        application_id: UUID,
+        *,
+        status: ApplicationStatus,
+        detail: str | None = None,
+        submitted_at: datetime | None = None,
+    ) -> Application | None:
+        """Persist a submission outcome: terminal status plus a PII-free note/timestamp.
+
+        Called once per application by the submission pipeline, moving it out of
+        ``APPROVED`` so it is never picked up (or submitted) again.
+        """
+        orm = await self._session.get(ApplicationORM, application_id)
+        if orm is None:
+            return None
+        orm.status = status
+        orm.submission_detail = detail
+        orm.submitted_at = submitted_at
         await self._session.flush()
         await self._session.refresh(orm)
         return self._to_domain(orm)

@@ -79,3 +79,11 @@ def test_migration_matches_models_no_structural_drift(migrated_url: str) -> None
     finally:
         sync_engine.dispose()
     assert diffs == [], f"Uncaptured schema drift: {diffs}"
+
+
+def test_user_telegram_ids_are_bigint() -> None:
+    """Telegram ids are 64-bit; 32-bit Integer overflows on PostgreSQL (see migration 0003)."""
+    from sqlalchemy import BigInteger
+
+    assert isinstance(UserORM.__table__.c.telegram_user_id.type, BigInteger)
+    assert isinstance(UserORM.__table__.c.telegram_chat_id.type, BigInteger)

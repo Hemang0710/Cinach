@@ -25,7 +25,7 @@ produce better applications than spraying hundreds of generic ones.
   grounded in your master resume.
 - **Plays fair** — uses official/licensed job APIs (Adzuna first) behind a
   pluggable interface, not scraping.
-- **Provider-agnostic LLM** — Anthropic / OpenAI / Google behind one interface.
+- **Provider-agnostic LLM** — Anthropic, **Groq (free)**, OpenAI, Google behind one interface.
 
 ## Quickstart
 
@@ -82,7 +82,7 @@ Cinch is built in reviewable phases (see [PROMPT.md](PROMPT.md)):
 - **Phase 3** — Telegram bot (webhook, onboarding, Approve/Skip). ✅
 - **Phase 4** — Job discovery + orchestration (Adzuna, scheduler). ✅
 - **Phase 5** — Hardening + docs (PII encryption, Sentry, health, coverage). ✅
-- **Phase 6** *(optional)* — Playwright assisted submission (ToS sign-off required).
+- **Phase 6** *(optional)* — Playwright assisted submission (opt-in, off by default). ✅
 
 ## Configuration
 
@@ -99,6 +99,7 @@ never commit a real `.env`. Key settings:
 | `DISCOVERY_ENABLED` / `DISCOVERY_INTERVAL_MINUTES` | Discovery scheduler (off by default) | `false` / `60` |
 | `ENCRYPTION_KEY` | Fernet key encrypting resume PII at rest (plaintext if unset) | — |
 | `SENTRY_DSN` | Error monitoring (off if unset) | — |
+| `SUBMISSION_ENABLED` / `SUBMISSION_INTERVAL_MINUTES` | Assisted submission (opt-in; see below) | `false` / `5` |
 
 ## Observability
 
@@ -128,6 +129,37 @@ scraping. The first adapter is [Adzuna](https://developer.adzuna.com/):
 
 Swapping in another licensed source is a matter of implementing the `JobSource`
 interface; the orchestration layer is source-agnostic.
+
+## Assisted submission (experimental, opt-in)
+
+Phase 6 adds **optional** Playwright-based assisted submission. It is **off by default**
+and, when enabled, only ever submits applications you have **already Approved** on
+Telegram — there is no unattended bulk auto-apply.
+
+> ⚠️ **Terms-of-Service risk.** Automatically submitting applications may violate a job
+> site's Terms of Service and could put your accounts at risk. Enabling this is a
+> deliberate operational choice you make **at your own risk**. Cinch never bypasses logins
+> or CAPTCHAs — those are handed back to you with the apply link.
+
+When `SUBMISSION_ENABLED=true`:
+
+- The submitted resume is your **real master resume**, rendered to a PDF — nothing is
+  fabricated (no LLM runs at submit time).
+- The submitter auto-fills and submits only a form it can confidently recognize. Anything
+  needing a login, a CAPTCHA, or an unrecognized form comes back to you as **"needs you"**
+  with the direct apply link.
+- An application is never submitted twice.
+
+Enable it (needs the `submit` extra and a browser binary):
+
+```bash
+uv sync --extra submit
+playwright install chromium
+```
+
+Then set `SUBMISSION_ENABLED=true` (see [.env.example](.env.example) for all submission
+settings). Add the master-resume contact fields (`name`, `email`, `phone`) so forms can be
+filled — without them, applications are handed back to you rather than submitted blind.
 
 ## Contributing
 
