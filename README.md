@@ -22,7 +22,8 @@ produce better applications than spraying hundreds of generic ones.
   every application from your phone.
 - **Never fabricates** — tailoring is keyword alignment, reordering, and
   emphasis of your *real* experience. A validation step flags any bullet not
-  grounded in your master resume.
+  grounded in your master resume. **PDF résumé upload** is grounded the same
+  way — the parser can't invent fields the PDF doesn't contain.
 - **Plays fair** — uses official/licensed job APIs (Adzuna first) behind a
   pluggable interface, not scraping.
 - **Provider-agnostic LLM** — Anthropic, **Groq (free)**, OpenAI, Google behind one interface.

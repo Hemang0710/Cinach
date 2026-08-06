@@ -11,7 +11,7 @@ User content (resume JSON, message text) is never logged.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -43,14 +43,17 @@ _WELCOME = (
     "👋 Welcome to Cinch — your human-in-the-loop job application assistant.\n\n"
     "I tailor your master resume to each job and send it here with Approve / Skip "
     "buttons. Nothing is ever submitted without your approval.\n\n"
-    "To get started, send me your master resume as a <b>.json</b> file "
-    "(see /setresume). Then run /discover any time to pull jobs on demand."
+    "To get started, send me your master resume as a <b>.json</b> or <b>.pdf</b> "
+    "file (see /setresume). Then run /discover any time to pull jobs on demand."
 )
 
 _SETRESUME_HELP = (
-    "Send your master resume as a <b>.json</b> file matching Cinch's schema "
-    "(summary, skills, experiences[], education[]). I validate it before saving and "
-    "only ever rephrase what's in it — never inventing new experience."
+    "Two ways to set your master résumé:\n"
+    "• Send a <b>.pdf</b> résumé — I extract the text and structure it (a strict "
+    "grounding check refuses anything the parser can't verify in the PDF).\n"
+    "• Send a <b>.json</b> file matching Cinch's schema (summary, skills, "
+    "experiences[], education[]).\n\n"
+    "Either way, I never invent new experience — only rephrase what's real."
 )
 
 
@@ -75,13 +78,14 @@ async def setresume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Accept a ``.json`` master-resume upload; validate and store it."""
+    """Accept a ``.json`` or ``.pdf`` master-resume upload; validate and store it."""
     message, user, chat = update.message, update.effective_user, update.effective_chat
     if message is None or message.document is None or user is None or chat is None:
         return
     document = message.document
-    if not (document.file_name or "").lower().endswith(".json"):
-        await message.reply_text("Please upload your master resume as a .json file.")
+    filename = (document.file_name or "").lower()
+    if not (filename.endswith(".json") or filename.endswith(".pdf")):
+        await message.reply_text("Please upload your master resume as a .json or .pdf file.")
         return
     if document.file_size is not None and document.file_size > _MAX_RESUME_BYTES:
         await message.reply_text("That file is too large (max 1 MB).")
@@ -89,20 +93,62 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     tg_file = await document.get_file()
     raw = bytes(await tg_file.download_as_bytearray())
-    try:
-        master = MasterResume.model_validate_json(raw)
-    except ValidationError:
-        logger.info("resume_upload_rejected", telegram_user_id=user.id)  # no content logged
-        await message.reply_text(
-            "That resume JSON didn't match the expected schema. Please fix it and resend."
-        )
-        return
+
+    if filename.endswith(".pdf"):
+        master = await _parse_pdf_or_reply(raw, message, context, user_id=user.id)
+    else:
+        master = await _parse_json_or_reply(raw, message, user_id=user.id)
+    if master is None:
+        return  # user was already told what went wrong
 
     async with _db(context).session() as session:
         owner = await UserRepository(session).get_or_create(user.id, chat.id)
         await ResumeRepository(session).set_master(owner.id, master.model_dump())
     logger.info("resume_saved", telegram_user_id=user.id)
-    await message.reply_text("✅ Master resume saved.")
+    summary = f"parsed {len(master.experiences)} experience(s) and {len(master.skills)} skill(s)"
+    await message.reply_text(f"✅ Master resume saved — {summary}.")
+
+
+async def _parse_json_or_reply(raw: bytes, message: Any, *, user_id: int) -> MasterResume | None:
+    try:
+        return MasterResume.model_validate_json(raw)
+    except ValidationError:
+        logger.info("resume_upload_rejected", telegram_user_id=user_id)  # no content logged
+        await message.reply_text(
+            "That resume JSON didn't match the expected schema. Please fix it and resend."
+        )
+        return None
+
+
+async def _parse_pdf_or_reply(
+    raw: bytes, message: Any, context: ContextTypes.DEFAULT_TYPE, *, user_id: int
+) -> MasterResume | None:
+    """Parse a PDF résumé via the anti-fabrication PDFIngestService.
+
+    Any failure is reported to the user with the service's own PII-free message.
+    """
+    from cinch.providers.llm import get_llm_provider
+    from cinch.services.pdf_ingest import PDFIngestError, PDFIngestService
+
+    await message.reply_text("🔎 Parsing your résumé…")
+    settings = cast(Settings, context.bot_data["settings"])
+    try:
+        provider = get_llm_provider(settings)
+    except Exception:
+        logger.exception("pdf_ingest_no_llm", telegram_user_id=user_id)
+        await message.reply_text("⚠️ No LLM provider configured — can't parse PDFs.")
+        return None
+    service = PDFIngestService(provider, settings)
+    try:
+        return await service.ingest(raw)
+    except PDFIngestError as exc:
+        logger.info("pdf_ingest_failed", telegram_user_id=user_id)  # no content logged
+        await message.reply_text(str(exc))
+        return None
+    except Exception:
+        logger.exception("pdf_ingest_error", telegram_user_id=user_id)
+        await message.reply_text("⚠️ Couldn't parse that PDF — try again later.")
+        return None
 
 
 async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -35,6 +35,7 @@ dependencies = [
     "anthropic>=0.69",
     "openai>=1.50",  # also drives Groq (free, OpenAI-compatible) via a custom base URL
     "cryptography>=43",
+    "pypdf>=5.0",  # pure-Python PDF text extraction for /uploadpdf (Phase 8)
 ]
 
 [project.optional-dependencies]
