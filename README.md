@@ -25,7 +25,8 @@ produce better applications than spraying hundreds of generic ones.
 - **Never fabricates** — tailoring is keyword alignment, reordering, and
   emphasis of your *real* experience. A validation step flags any bullet not
   grounded in your master resume, and ungrounded rewrites are excluded from
-  the PDF as well.
+  the PDF too. **PDF résumé upload** is grounded the same way — the parser
+  can't invent fields the PDF doesn't contain.
 - **Plays fair** — uses official/licensed job APIs (Adzuna, RemoteOK, Arbeitnow)
   behind a pluggable interface, never scraping. Fans out to every enabled
   source in one cycle so you see many more relevant postings.
