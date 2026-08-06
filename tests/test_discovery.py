@@ -34,12 +34,18 @@ _EMPTY_TAILORING = '{"bullets": []}'
 
 class RecordingNotifier:
     def __init__(self) -> None:
-        self.sent: list[tuple[int, UUID]] = []
+        self.sent: list[tuple[int, UUID, bool]] = []  # chat_id, app_id, had_pdf?
 
     async def notify(
-        self, *, chat_id: int, job: Job, tailoring: TailoringResult, application_id: UUID
+        self,
+        *,
+        chat_id: int,
+        job: Job,
+        tailoring: TailoringResult,
+        application_id: UUID,
+        resume_pdf: bytes | None = None,
     ) -> None:
-        self.sent.append((chat_id, application_id))
+        self.sent.append((chat_id, application_id, resume_pdf is not None))
 
 
 def _raw(external_id: str) -> RawJob:
@@ -109,6 +115,20 @@ async def test_cycle_discovers_tailors_notifies_then_is_idempotent(db: Database)
     async with db.session() as session:
         apps_after = await ApplicationRepository(session).list()
     assert len(apps_after) == 2  # no duplicate applications
+
+
+async def test_cycle_delivers_a_pdf_attachment(db: Database) -> None:
+    """Every successful notification must carry a rendered résumé PDF (Phase 9)."""
+    await _seed_user_with_master(db, telegram_user_id=42)
+    job_source = FakeJobSource([_raw("a1")])
+    llm = FakeLLMProvider(responses=[_EMPTY_TAILORING])
+    notifier = RecordingNotifier()
+
+    async with db.session() as session:
+        summary = await _service(session, job_source=job_source, llm=llm, notifier=notifier).run()
+
+    assert summary.notified == 1
+    assert notifier.sent[0][2] is True  # had_pdf
 
 
 async def test_user_without_master_resume_is_skipped(db: Database) -> None:

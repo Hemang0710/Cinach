@@ -43,9 +43,20 @@ class JobNotifier(Protocol):
     """Delivers a tailored application to a user (Telegram, in production)."""
 
     async def notify(
-        self, *, chat_id: int, job: Job, tailoring: TailoringResult, application_id: UUID
+        self,
+        *,
+        chat_id: int,
+        job: Job,
+        tailoring: TailoringResult,
+        application_id: UUID,
+        resume_pdf: bytes | None = None,
     ) -> None:
-        """Send the job + tailored resume with Approve/Skip controls."""
+        """Send the job + tailored resume with Approve/Skip controls.
+
+        ``resume_pdf`` (Phase 9) is an optional rendered résumé PDF the notifier may
+        attach so the user can preview exactly what would be submitted. ``None``
+        means the caller couldn't render one — the card is still delivered.
+        """
         ...
 
 
@@ -137,12 +148,17 @@ class DiscoveryService:
         for raw in raw_jobs:
             summary.discovered += 1
             try:
-                await self._process_job(user, resume, raw, summary)
+                await self._process_job(user, resume, master, raw, summary)
             except Exception:
                 logger.exception("discovery_job_failed", external_id=raw.external_id)
 
     async def _process_job(
-        self, user: User, resume: Resume, raw: RawJob, summary: DiscoverySummary
+        self,
+        user: User,
+        resume: Resume,
+        master: MasterResume,
+        raw: RawJob,
+        summary: DiscoverySummary,
     ) -> None:
         job = await self._jobs.get_or_create(
             source=self._job_source.source_name,
@@ -164,12 +180,29 @@ class DiscoveryService:
             user_id=user.id, job_id=job.id, status=ApplicationStatus.DISCOVERED
         )
         tailoring = await self._tailoring.tailor(resume=resume, job=job)
+        resume_pdf = _render_resume_pdf_or_none(master, tailoring)
         await self._notifier.notify(
             chat_id=user.telegram_chat_id,
             job=job,
             tailoring=tailoring,
             application_id=application.id,
+            resume_pdf=resume_pdf,
         )
         # Mark delivered only after a successful send, so a failure retries next cycle.
         await self._applications.set_status(application.id, ApplicationStatus.PENDING_APPROVAL)
         summary.notified += 1
+
+
+def _render_resume_pdf_or_none(master: MasterResume, tailoring: TailoringResult) -> bytes | None:
+    """Render the tailored résumé to PDF; return ``None`` (fail-soft) on any error.
+
+    The Approve/Skip card must still ship even if PDF rendering fails — losing the
+    attachment is a much smaller regression than losing the whole notification.
+    """
+    from cinch.services.resume_pdf import render_master_resume_pdf
+
+    try:
+        return render_master_resume_pdf(master, tailoring)
+    except Exception:
+        logger.exception("resume_pdf_render_failed")
+        return None
