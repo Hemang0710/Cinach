@@ -8,7 +8,7 @@ schema validation.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 from cinch.bot import handlers
@@ -21,6 +21,7 @@ from cinch.db.repositories import (
 )
 from cinch.db.session import Database
 from cinch.domain.enums import ApplicationStatus, JobSourceName
+from cinch.services.discovery import DiscoverySummary
 
 OWNER_TG_ID = 42
 OTHER_TG_ID = 999
@@ -148,3 +149,54 @@ async def test_document_handler_saves_valid_master_resume(db: Database, settings
         master = await ResumeRepository(session).get_master(user.id)
         assert master is not None
         assert master.content["summary"] == "Engineer"
+
+
+def _command_update() -> tuple[MagicMock, MagicMock]:
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    update = MagicMock()
+    update.message = message
+    update.effective_user = SimpleNamespace(id=OWNER_TG_ID)
+    update.effective_chat = SimpleNamespace(id=CHAT_ID)
+    return update, message
+
+
+async def _seed_master_resume(db: Database) -> None:
+    async with db.session() as session:
+        user = await UserRepository(session).get_or_create(OWNER_TG_ID, CHAT_ID)
+        await ResumeRepository(session).set_master(
+            user.id,
+            {"summary": "E", "skills": ["Py"], "experiences": [], "education": []},
+        )
+
+
+async def test_discover_command_needs_adzuna_configured(db: Database) -> None:
+    # Fresh settings with no ambient .env so the check is deterministic.
+    settings = Settings(_env_file=None)
+    update, message = _command_update()
+    await handlers.discover_command(update, _context(db, settings))
+    message.reply_text.assert_awaited_once()
+    assert "configured" in message.reply_text.await_args.args[0].lower()
+
+
+async def test_discover_command_asks_for_resume_first(db: Database) -> None:
+    settings = Settings(_env_file=None, adzuna_app_id="a", adzuna_app_key="k")
+    update, message = _command_update()
+    await handlers.discover_command(update, _context(db, settings))
+    # First reply asks the user to upload their resume; never triggers a cycle.
+    assert any("resume" in call.args[0].lower() for call in message.reply_text.await_args_list)
+
+
+async def test_discover_command_runs_cycle_when_configured(db: Database) -> None:
+    await _seed_master_resume(db)
+    settings = Settings(_env_file=None, adzuna_app_id="a", adzuna_app_key="k")
+    update, message = _command_update()
+    fake_cycle = AsyncMock(return_value=DiscoverySummary(users=1, discovered=2, notified=2))
+
+    with patch("cinch.api.scheduler.run_discovery_cycle", fake_cycle):
+        await handlers.discover_command(update, _context(db, settings))
+
+    fake_cycle.assert_awaited_once()
+    # Only the "🔎 Searching…" ack is sent; job cards themselves are sent by the notifier.
+    assert message.reply_text.await_count == 1
+    assert "search" in message.reply_text.await_args.args[0].lower()

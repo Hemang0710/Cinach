@@ -21,6 +21,7 @@ from telegram.ext import ContextTypes
 from cinch.bot.keyboards import parse_callback
 from cinch.bot.messages import decision_ack
 from cinch.bot.notify import send_application
+from cinch.core.config import Settings
 from cinch.core.logging import get_logger
 from cinch.db.repositories import (
     ApplicationRepository,
@@ -43,7 +44,7 @@ _WELCOME = (
     "I tailor your master resume to each job and send it here with Approve / Skip "
     "buttons. Nothing is ever submitted without your approval.\n\n"
     "To get started, send me your master resume as a <b>.json</b> file "
-    "(see /setresume)."
+    "(see /setresume). Then run /discover any time to pull jobs on demand."
 )
 
 _SETRESUME_HELP = (
@@ -146,6 +147,52 @@ async def demo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         tailoring=tailoring,
         application_id=application.id,
     )
+
+
+async def discover_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/discover — trigger one discovery cycle now.
+
+    On free hosting the scheduler's 60-min tick often misses because the instance
+    sleeps between requests. This lets the user pull jobs on demand from Telegram
+    (which wakes the app naturally). Requires the caller to already have a master
+    resume — so unauthenticated callers can't spam the Adzuna/LLM quotas.
+    """
+    message, user, chat = update.message, update.effective_user, update.effective_chat
+    if message is None or user is None or chat is None:
+        return
+
+    settings = cast(Settings, context.bot_data["settings"])
+    if not (settings.adzuna_app_id and settings.adzuna_app_key):
+        await message.reply_text("⚠️ Job discovery isn't configured on this instance.")
+        return
+
+    db = _db(context)
+    async with db.session() as session:
+        owner = await UserRepository(session).get_or_create(user.id, chat.id)
+        has_master = await ResumeRepository(session).get_master(owner.id) is not None
+    if not has_master:
+        await message.reply_text("Upload your master resume first (see /setresume).")
+        return
+
+    await message.reply_text("🔎 Searching for jobs…")
+    from cinch.api.scheduler import run_discovery_cycle
+
+    try:
+        summary = await run_discovery_cycle(db, settings, context.bot)
+    except Exception:
+        logger.exception("discover_command_failed", telegram_user_id=user.id)
+        await message.reply_text("⚠️ Job discovery failed — check the server logs.")
+        return
+
+    # New job cards were already sent as separate messages by the notifier.
+    if summary.notified > 0:
+        return
+    if summary.discovered == 0:
+        await message.reply_text("No jobs found right now. Try again later.")
+    else:
+        await message.reply_text(
+            f"Found {summary.discovered} job(s), but all were already sent to you."
+        )
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
