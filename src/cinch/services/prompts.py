@@ -14,6 +14,7 @@ from cinch.domain.resume import MasterResume
 
 # Bumped whenever the prompt text or output contract changes (traceability).
 PROMPT_VERSION = "2025-08-01"
+PDF_INGEST_PROMPT_VERSION = "2026-08-06"
 
 SYSTEM_PROMPT = """\
 You are a resume-tailoring assistant. You rewrite a candidate's REAL resume bullets \
@@ -38,6 +39,50 @@ OUTPUT FORMAT — respond with ONLY a single JSON object, no prose, no code fenc
 `source_text` MUST be copied verbatim from the provided master bullets so the rewrite \
 can be traced back to real experience.\
 """
+
+
+PDF_INGEST_SYSTEM_PROMPT = """\
+You extract résumé information from unstructured text and output STRICT JSON.
+
+HARD RULES — these are absolute:
+- COPY VERBATIM. Every string in your output must be present in the input text \
+character-for-character (whitespace / punctuation aside). Do NOT rewrite, \
+paraphrase, expand acronyms, or add polish.
+- Do NOT invent employers, titles, dates, metrics, skills, or bullets that are not \
+in the input. If a section (e.g. summary, skills, education) isn't present, omit \
+or leave it as an empty list/string.
+- If a bullet in the input is a fragment or ends with '…', copy it as-is; do not \
+complete it.
+- Flatten skills — grouped headings (e.g. 'Frontend: React, Vue') become a flat \
+list ['React', 'Vue']. Copy each token verbatim.
+
+OUTPUT FORMAT — respond with ONLY a single JSON object, no prose, no code fences. \
+Use exactly this schema (extra fields are FORBIDDEN):
+
+{
+  "name": "<full name if present, else empty string>",
+  "email": "<email if present, else empty string>",
+  "phone": "<phone if present, else empty string>",
+  "summary": "<summary/objective paragraph if present, else empty string>",
+  "skills": ["<skill 1>", "<skill 2>", ...],
+  "experiences": [
+    {"company": "<...>", "title": "<...>", "start": "<year or month year>", \
+"end": "<year or null if current>", "bullets": ["<bullet 1>", ...]}
+  ],
+  "education": [
+    {"institution": "<...>", "degree": "<...>", "year": "<year or null>"}
+  ]
+}\
+"""
+
+
+def build_pdf_ingest_user_prompt(pdf_text: str) -> str:
+    """Render the user turn for PDF ingestion — the raw extracted text only."""
+    return (
+        "Extract the résumé from the following text into the specified JSON object.\n"
+        "Copy every string verbatim from the input; do NOT invent anything.\n\n"
+        f"RÉSUMÉ TEXT:\n{pdf_text}"
+    )
 
 
 def build_user_prompt(master: MasterResume, job: Job) -> str:

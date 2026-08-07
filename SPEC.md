@@ -1,95 +1,92 @@
-# SPEC — Phase 7: Multi-source job discovery
+# SPEC — Phase 8: PDF résumé ingestion
 
 ## Goal
 
-Discovery is no longer limited to Adzuna. Users can enable multiple **free**
-official job APIs — RemoteOK, Arbeitnow — alongside Adzuna, and Cinch fans out
-to all of them in one cycle. Immediate user-visible impact: `/discover` returns
-many more (and often more relevant) postings, even when Adzuna's free tier
-returns 0 for a query.
+Let a user upload their **actual PDF résumé** to the Telegram bot and have it saved
+as their master résumé, without hand-crafting the JSON. Solves the biggest UX gap:
+today users must translate their real résumé into Cinch's strict schema by hand,
+and getting one field wrong means the upload is rejected.
 
 ## Non-goals
 
-- No scraping. All new sources are documented public JSON APIs.
-- No LinkedIn/Indeed automation of any kind (see [SECURITY.md](SECURITY.md) — the
-  project's non-negotiable rule).
-- No ATS-aware submission decisions yet — that's the follow-up Phase 7b.
-- No JSearch/RapidAPI adapter yet — deferred to Phase 7b (needs signup).
+- No new tailoring / discovery / submission behaviour changes.
+- Not a general-purpose parser. Optimised for reasonably-formatted PDF résumés.
+- Not a PDF-in / PDF-out flow (that's Phase 9).
 
-## Design
+## Behaviour (bot flow)
 
-- **`RawJob.source: JobSourceName | None`** — each adapter stamps its own
-  identity so the multi-source pipeline can preserve provenance. Optional for
-  backward compatibility; discovery falls back to the calling
-  `JobSource.source_name` when unset.
-- **New adapters** — `RemoteOKJobSource`, `ArbeitnowJobSource`. Both use free
-  public JSON endpoints with no auth. Each sets a Cinch `User-Agent`, strips
-  HTML from descriptions (rough regex + `html.unescape`), and filters
-  client-side against `JobQuery.what` since the free feeds don't accept
-  server-side keyword params.
-- **`CompositeJobSource`** — fans out to N adapters via `asyncio.gather`.
-  Per-source failures are caught and logged (`composite_source_failed`) so one
-  dead API can't kill the whole cycle. Deduplication is deliberately left to
-  `JobRepository`'s existing `(source, external_id)` unique constraint — the
-  same posting from two sources is stored twice (once per source), which is
-  the correct behaviour (they're separate postings with separate apply URLs).
-- **`JOB_SOURCES`** env var — comma-separated list. Default `"adzuna"`
-  preserves prior behaviour. Common production configs: `"adzuna,remoteok,arbeitnow"`,
-  or `"remoteok,arbeitnow"` for a fully-free setup with no Adzuna signup.
-- **Fail-soft factory** — sources with missing credentials are logged and
-  skipped rather than raising. If only one source survives, it's returned
-  directly (no composite wrapper). Only when zero sources survive does the
-  factory raise `JobSourceError`.
+1. User sends any `.pdf` file to the bot.
+2. Bot: **"🔎 Parsing your résumé…"**
+3. Text extracted with `pypdf`. If the PDF is image-only (no extractable text) →
+   *"Couldn't read text from that PDF (image-only?). Please send a text-based PDF
+   or your résumé as .json (see /setresume)."*
+4. LLM (whatever provider is configured — Groq / Anthropic) structures the text
+   into Cinch's exact `MasterResume` schema.
+5. **Anti-fabrication guard** — every string field in the parsed résumé must appear
+   (normalised substring) in the extracted PDF text. Fabricated content is
+   rejected: `"That parse produced fields I couldn't verify in the PDF text — try
+   the .json path instead."`
+6. Saved as the user's master résumé (upsert; overwrites any existing).
+7. Bot: **"✅ Saved master résumé — parsed X experience(s) and Y skill(s). Send
+   /discover to pull matching jobs, or resend the PDF to overwrite."**
 
-## Interfaces & files
+## Design (mirrors the existing tailoring pipeline)
 
-**New:**
-- `src/cinch/providers/jobs/remoteok.py` — `RemoteOKJobSource` + `_strip_html`.
-- `src/cinch/providers/jobs/arbeitnow.py` — `ArbeitnowJobSource`.
-- `src/cinch/providers/jobs/composite.py` — `CompositeJobSource` (concurrent
-  fan-out, per-source error isolation).
-- `tests/test_remoteok.py` — 4 tests (parse + filter + source-stamp + HTTP error + strip helper).
-- `tests/test_arbeitnow.py` — 3 tests (parse + filter + source-stamp + malformed-JSON + HTTP error).
-- `tests/test_job_source_composite.py` — 8 tests (merge, per-source isolation,
-  factory: single vs composite, missing creds skipped, unknown names skipped,
-  no-source-survives raises).
+- **Extraction stays a pure function**: `extract_text_from_pdf(bytes) -> str` in
+  `services/pdf_ingest.py`, no I/O, unit-testable with tiny fixture PDFs.
+- **Structuring is provider-agnostic**: `PDFIngestService` depends on
+  `LLMProvider` (same interface tailoring uses). New system prompt in
+  `services/prompts.py` — versioned like `SYSTEM_PROMPT` there. Instructs the LLM
+  to **copy fields verbatim** from the input, never rewrite / paraphrase.
+- **Grounding validator lives with the service**: after Pydantic validation,
+  every scalar string field (`name`, `email`, summary, skills, experience bullets,
+  education entries…) is normalised (lowercase + collapse whitespace + strip
+  non-alphanumeric) and required to be a substring of the same-normalised PDF text.
+  If any field fails, the whole ingest is rejected — never silently keep partial.
+- **Handler is thin**: `document_handler` gains a second branch. `.json` → existing
+  path. `.pdf` → `PDFIngestService.ingest` → `set_master`. Same 1 MB size cap.
+  No pending-confirmation state to keep the bot layer stateless.
 
-**Modified:**
-- `src/cinch/domain/enums.py` — added `JobSourceName.REMOTEOK`, `ARBEITNOW`.
-- `src/cinch/providers/jobs/base.py` — `RawJob.source` optional field.
-- `src/cinch/providers/jobs/adzuna.py` — stamps `source=ADZUNA`.
-- `src/cinch/providers/jobs/__init__.py` — `get_job_source` now iterates
-  `settings.job_sources`, builds each adapter (fail-soft), returns single
-  source or composite as appropriate.
-- `src/cinch/core/config.py` — `job_sources: str = "adzuna"` setting.
-- `src/cinch/services/discovery.py` — persists jobs under `raw.source or
-  self._job_source.source_name` (backward compatible).
-- `tests/test_adzuna.py` — asserts `RawJob.source` is stamped now.
-- Docs: SPEC + README + `.env.example`.
+## New files
+
+- `src/cinch/services/pdf_ingest.py` — `extract_text_from_pdf`, `PDFIngestError`,
+  `PDFIngestService.ingest(pdf_bytes) -> MasterResume`, plus a `_ground_or_raise`
+  helper that walks the parsed résumé and validates every string.
+- `tests/test_pdf_ingest.py` — extraction on a real tiny PDF fixture; grounding
+  passes on faithful output; grounding rejects fabricated skills/experience;
+  handler routes `.pdf` correctly; empty/image-only PDF handled cleanly.
+
+## Modified files
+
+- `src/cinch/services/prompts.py` — add `PDF_INGEST_SYSTEM_PROMPT` (verbatim-copy
+  rules) + `build_pdf_ingest_user_prompt(text)`. Bump/version separately.
+- `src/cinch/bot/handlers.py` — `document_handler` routes on file extension:
+  `.json` → existing; `.pdf` → `PDFIngestService`. Welcome text updated to mention
+  "send your résumé as .json OR .pdf".
+- `pyproject.toml` — add `pypdf>=5.0` (small pure-Python PDF extractor).
+- `README.md` / `CLAUDE.md` — one-line mention of PDF upload support.
 
 ## Safety properties (asserted by tests)
 
-1. Every adapter's `RawJob` carries its own `source` value (Adzuna, RemoteOK, Arbeitnow).
-2. Client-side keyword filter matches title OR any tag — not fabricated relevance.
-3. HTML content in descriptions is stripped before storage (LLM prompts stay clean).
-4. `CompositeJobSource` never dies from a single upstream failure; peers still deliver.
-5. Factory skips sources with missing creds (partial config still works).
-6. Factory raises loudly if zero sources survive (never silently return empty).
+1. `.pdf` upload with valid text → saved successfully.
+2. `.pdf` upload with fabricated content (mocked LLM adds a skill not in PDF) →
+   rejected, nothing saved.
+3. Image-only / unreadable PDF → clean error message, no crash, nothing saved.
+4. `.json` upload path unchanged.
+5. Oversized upload (>1 MB) still rejected before download.
 
 ## Verification
 
-- `uv run ruff check .` · `ruff format --check .` · `uv run mypy` ·
-  `uv run pytest` — all green, coverage ≥ 80%.
-- Manual smoke (post-deploy): set `JOB_SOURCES=adzuna,remoteok,arbeitnow` in
-  Render → save → wait for redeploy → `/discover` in Telegram → you should see
-  jobs from multiple sources (visible in the Job's `source` column in the DB
-  and in future dashboard views).
+- `uv run ruff check .` / `ruff format --check .` / `uv run mypy` / `uv run pytest`
+  — all green, coverage ≥ 80%.
+- New tests use mocked `LLMProvider` (no live API calls) and a tiny in-memory PDF
+  built with `pypdf.PdfWriter` or a pre-recorded byte string.
+- Manual smoke (post-deploy): send your actual résumé PDF to the bot → verify
+  "Saved master résumé — parsed N experience(s)" appears → `/discover` works.
 
-## Out of scope (future work — Phase 7b)
+## Out of scope for this phase (future work)
 
-- JSearch (RapidAPI free tier) adapter.
-- ATS detection from apply URL (Greenhouse/Lever/Workable/Ashby) so Phase 6
-  auto-submits only on ATS-eligible postings and hands off LinkedIn/Indeed.
-- Per-source rate-limit budgets (currently we rely on discovery-interval politeness).
-- Result-level dedup across sources (same job from Adzuna + Arbeitnow — currently
-  stored twice under different sources, which is intentional but reviewable).
+- Confirmation UI (Approve/Reject buttons showing the parsed JSON before save) —
+  keeping the flow minimal; users can re-upload to overwrite.
+- OCR for image-only PDFs (would need a heavy dependency; better to tell the user).
+- DOCX / other formats.

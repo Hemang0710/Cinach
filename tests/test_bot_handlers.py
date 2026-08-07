@@ -151,6 +151,74 @@ async def test_document_handler_saves_valid_master_resume(db: Database, settings
         assert master.content["summary"] == "Engineer"
 
 
+async def test_document_handler_rejects_unknown_extension(db: Database, settings: Settings) -> None:
+    update, message = _document_update(content=b"anything", file_name="resume.docx")
+    await handlers.document_handler(update, _context(db, settings))
+    message.reply_text.assert_awaited_once()
+    assert ".json" in message.reply_text.await_args.args[0]
+    assert ".pdf" in message.reply_text.await_args.args[0]
+
+
+async def test_document_handler_routes_pdf_through_ingest_service(
+    db: Database, settings: Settings
+) -> None:
+    """A .pdf upload runs through PDFIngestService and saves the returned MasterResume."""
+    from cinch.domain.resume import ExperienceEntry, MasterResume
+    from cinch.providers.llm.fake import FakeLLMProvider
+
+    fake_master = MasterResume(
+        name="Jane Doe",
+        email="jane@example.com",
+        summary="Engineer",
+        skills=["Python"],
+        experiences=[ExperienceEntry(company="C", title="T", start="2020", bullets=["Built X"])],
+    )
+    update, message = _document_update(content=b"fake-pdf-bytes", file_name="resume.pdf")
+
+    with (
+        patch("cinch.providers.llm.get_llm_provider", return_value=FakeLLMProvider([])),
+        patch(
+            "cinch.services.pdf_ingest.PDFIngestService.ingest",
+            AsyncMock(return_value=fake_master),
+        ),
+    ):
+        await handlers.document_handler(update, _context(db, settings))
+
+    # First reply is "🔎 Parsing…", second is "✅ Master resume saved — …".
+    assert message.reply_text.await_count == 2
+    assert "saved" in message.reply_text.await_args.args[0].lower()
+    async with db.session() as session:
+        user = await UserRepository(session).get_by_telegram_id(OWNER_TG_ID)
+        assert user is not None
+        master = await ResumeRepository(session).get_master(user.id)
+        assert master is not None
+        assert master.content["name"] == "Jane Doe"
+
+
+async def test_document_handler_pdf_ingest_failure_replies_and_does_not_save(
+    db: Database, settings: Settings
+) -> None:
+    from cinch.providers.llm.fake import FakeLLMProvider
+    from cinch.services.pdf_ingest import PDFIngestError
+
+    update, message = _document_update(content=b"fake-pdf-bytes", file_name="resume.pdf")
+    with (
+        patch("cinch.providers.llm.get_llm_provider", return_value=FakeLLMProvider([])),
+        patch(
+            "cinch.services.pdf_ingest.PDFIngestService.ingest",
+            AsyncMock(side_effect=PDFIngestError("Parsed field 'name' isn't in the PDF text.")),
+        ),
+    ):
+        await handlers.document_handler(update, _context(db, settings))
+
+    # "🔎 Parsing…" then the error message — never "saved".
+    assert message.reply_text.await_count == 2
+    assert "isn't in the PDF" in message.reply_text.await_args.args[0]
+    async with db.session() as session:
+        user = await UserRepository(session).get_by_telegram_id(OWNER_TG_ID)
+        assert user is None or await ResumeRepository(session).get_master(user.id) is None
+
+
 def _command_update() -> tuple[MagicMock, MagicMock]:
     message = MagicMock()
     message.reply_text = AsyncMock()

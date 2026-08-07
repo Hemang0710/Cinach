@@ -36,6 +36,7 @@ dependencies = [
     "openai>=1.50",  # also drives Groq (free, OpenAI-compatible) via a custom base URL
     "cryptography>=43",
     "fpdf2>=2.7",  # pure-Python PDF generation for tailored resume delivery (Phase 9)
+    "pypdf>=5.0",  # pure-Python PDF text extraction for /uploadpdf (Phase 8)
 ]
 
 [project.optional-dependencies]
