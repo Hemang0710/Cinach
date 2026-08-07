@@ -164,6 +164,7 @@ async def test_document_handler_routes_pdf_through_ingest_service(
 ) -> None:
     """A .pdf upload runs through PDFIngestService and saves the returned MasterResume."""
     from cinch.domain.resume import ExperienceEntry, MasterResume
+    from cinch.providers.llm.fake import FakeLLMProvider
 
     fake_master = MasterResume(
         name="Jane Doe",
@@ -174,8 +175,12 @@ async def test_document_handler_routes_pdf_through_ingest_service(
     )
     update, message = _document_update(content=b"fake-pdf-bytes", file_name="resume.pdf")
 
-    with patch(
-        "cinch.services.pdf_ingest.PDFIngestService.ingest", AsyncMock(return_value=fake_master)
+    with (
+        patch("cinch.providers.llm.get_llm_provider", return_value=FakeLLMProvider([])),
+        patch(
+            "cinch.services.pdf_ingest.PDFIngestService.ingest",
+            AsyncMock(return_value=fake_master),
+        ),
     ):
         await handlers.document_handler(update, _context(db, settings))
 
@@ -193,12 +198,16 @@ async def test_document_handler_routes_pdf_through_ingest_service(
 async def test_document_handler_pdf_ingest_failure_replies_and_does_not_save(
     db: Database, settings: Settings
 ) -> None:
+    from cinch.providers.llm.fake import FakeLLMProvider
     from cinch.services.pdf_ingest import PDFIngestError
 
     update, message = _document_update(content=b"fake-pdf-bytes", file_name="resume.pdf")
-    with patch(
-        "cinch.services.pdf_ingest.PDFIngestService.ingest",
-        AsyncMock(side_effect=PDFIngestError("Parsed field 'name' isn't in the PDF text.")),
+    with (
+        patch("cinch.providers.llm.get_llm_provider", return_value=FakeLLMProvider([])),
+        patch(
+            "cinch.services.pdf_ingest.PDFIngestService.ingest",
+            AsyncMock(side_effect=PDFIngestError("Parsed field 'name' isn't in the PDF text.")),
+        ),
     ):
         await handlers.document_handler(update, _context(db, settings))
 
