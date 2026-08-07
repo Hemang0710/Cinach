@@ -7,7 +7,12 @@ import pytest
 
 from cinch.domain.enums import JobSourceName
 from cinch.providers.jobs.base import JobQuery, JobSourceError
-from cinch.providers.jobs.remoteok import RemoteOKJobSource, _strip_html
+from cinch.providers.jobs.remoteok import (
+    RemoteOKJobSource,
+    _matches,
+    _query_words,
+    _strip_html,
+)
 
 # First element mimics RemoteOK's legal-notice sentinel that must be skipped.
 _SAMPLE = [
@@ -78,3 +83,34 @@ def test_strip_html_removes_tags_and_unescapes() -> None:
     assert _strip_html("<p>hello &amp; world</p>") == "hello & world"
     assert _strip_html("") == ""
     assert _strip_html("plain") == "plain"
+
+
+def test_query_words_tokenises_and_drops_noise() -> None:
+    # Multi-word queries with punctuation split into meaningful tokens.
+    assert _query_words("Full-Stack Engineer") == ["full-stack", "engineer"]
+    assert _query_words("Backend Engineer") == ["backend", "engineer"]
+    # Short noise words (< 3 chars) are dropped.
+    assert _query_words("go js") == []
+    # Empty / whitespace safe.
+    assert _query_words("") == []
+    assert _query_words("   ") == []
+
+
+def test_matches_is_case_insensitive_substring() -> None:
+    assert _matches("Senior Backend Engineer", ["engineer"]) is True
+    assert _matches("Senior Backend Engineer", ["python"]) is False
+    assert _matches("Senior Backend Engineer", ["python", "engineer"]) is True  # ANY word
+    assert _matches("", ["engineer"]) is False
+
+
+async def test_search_matches_on_broad_word_not_whole_phrase() -> None:
+    """Real-world Aug 2026 bug: whole-phrase filter over-narrows and returns 0."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_SAMPLE)
+
+    source = RemoteOKJobSource(transport=httpx.MockTransport(handler))
+    # No RemoteOK title contains "Full-Stack Engineer" verbatim — but "engineer"
+    # matches 'Senior Python Engineer' and 'Backend Engineer', 'stack' matches none.
+    jobs = await source.search(JobQuery(what="Full-Stack Engineer", results=5))
+    assert {j.external_id for j in jobs} == {"rok-1", "rok-3"}

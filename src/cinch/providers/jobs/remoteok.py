@@ -26,12 +26,28 @@ _URL = "https://remoteok.com/api"
 _TIMEOUT = httpx.Timeout(15.0)
 _UA = "Cinch/0.x (+https://github.com/Hemang0710/Cinach)"
 _TAG_RE = re.compile(r"<[^>]+>")
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9+#-]*")
 
 
 def _strip_html(text: str) -> str:
     """Rough HTML → plain text: strip tags + unescape entities + collapse whitespace."""
     stripped = _TAG_RE.sub(" ", text or "")
     return re.sub(r"\s+", " ", unescape(stripped)).strip()
+
+
+def _query_words(query: str) -> list[str]:
+    """Meaningful lowercase words from a query, dropping trivial 1-2 char noise.
+
+    ``"Full-Stack Engineer (Co-op)"`` → ``["full", "stack", "engineer", "co-op"]``.
+    (Compound words with ``-`` are kept intact by the token regex.)
+    """
+    return [w.lower() for w in _WORD_RE.findall(query) if len(w) >= 3]
+
+
+def _matches(text: str, words: list[str]) -> bool:
+    """True if ANY search word appears (substring) in ``text`` (case-insensitive)."""
+    lowered = text.lower()
+    return any(w in lowered for w in words)
 
 
 class RemoteOKJobSource:
@@ -56,12 +72,16 @@ class RemoteOKJobSource:
 
         # RemoteOK's first array element is a legal notice, not a job — skip it.
         items = [item for item in payload if isinstance(item, dict) and "id" in item]
-        needle = query.what.lower()
+        # Word-based filter: any meaningful word from the query in title/tags is a hit.
+        # (A whole-phrase match would zero out on real titles — see fix/broaden PR.)
+        words = _query_words(query.what)
+        if not words:
+            return []
         matches = [
             item
             for item in items
-            if needle in (item.get("position") or "").lower()
-            or any(needle in (t or "").lower() for t in item.get("tags") or [])
+            if _matches(item.get("position") or "", words)
+            or any(_matches(t or "", words) for t in item.get("tags") or [])
         ]
         return [self._to_raw_job(item) for item in matches[: query.results]]
 

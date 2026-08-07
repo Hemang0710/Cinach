@@ -12,25 +12,17 @@ against ``JobQuery.what`` (case-insensitive substring on title + tags).
 
 from __future__ import annotations
 
-import re
-from html import unescape
 from typing import Any
 
 import httpx
 
 from cinch.domain.enums import JobSourceName
 from cinch.providers.jobs.base import JobQuery, JobSourceError, RawJob
+from cinch.providers.jobs.remoteok import _matches, _query_words, _strip_html
 
 _URL = "https://www.arbeitnow.com/api/job-board-api"
 _TIMEOUT = httpx.Timeout(15.0)
 _UA = "Cinch/0.x (+https://github.com/Hemang0710/Cinach)"
-_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def _strip_html(text: str) -> str:
-    """Rough HTML → plain text: strip tags + unescape entities + collapse whitespace."""
-    stripped = _TAG_RE.sub(" ", text or "")
-    return re.sub(r"\s+", " ", unescape(stripped)).strip()
 
 
 class ArbeitnowJobSource:
@@ -56,14 +48,17 @@ class ArbeitnowJobSource:
         items = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(items, list):
             return []
-        needle = query.what.lower()
+        # Word-based filter (whole-phrase matching would zero out on real titles).
+        words = _query_words(query.what)
+        if not words:
+            return []
         matches = [
             item
             for item in items
             if isinstance(item, dict)
             and (
-                needle in (item.get("title") or "").lower()
-                or any(needle in (t or "").lower() for t in item.get("tags") or [])
+                _matches(item.get("title") or "", words)
+                or any(_matches(t or "", words) for t in item.get("tags") or [])
             )
         ]
         return [self._to_raw_job(item) for item in matches[: query.results]]
