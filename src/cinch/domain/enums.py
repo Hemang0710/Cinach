@@ -37,3 +37,5 @@ class JobSourceName(StrEnum):
     """
 
     ADZUNA = "adzuna"
+    REMOTEOK = "remoteok"
+    ARBEITNOW = "arbeitnow"

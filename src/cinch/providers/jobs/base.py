@@ -31,6 +31,11 @@ class RawJob(BaseModel):
 
     Framework- and ORM-agnostic; the orchestrator maps this onto
     ``JobRepository.get_or_create``.
+
+    ``source`` is populated by each adapter so the multi-source :class:`CompositeJobSource`
+    can preserve provenance when merging results from many APIs. It is optional for
+    backward compatibility — when unset, the orchestrator falls back to the calling
+    ``JobSource.source_name``.
     """
 
     external_id: str
@@ -39,6 +44,7 @@ class RawJob(BaseModel):
     description: str
     url: str
     location: str | None = None
+    source: JobSourceName | None = None
 
 
 @runtime_checkable
