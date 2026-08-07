@@ -241,6 +241,38 @@ async def discover_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
 
 
+async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/dashboard — DM the caller a short-lived signed link to the web dashboard.
+
+    The URL includes a magic-link token that ``GET /dashboard/login`` verifies and
+    exchanges for a 7-day session cookie. Only requestable via Telegram, so only
+    an authenticated Telegram user (owner of the account) can obtain access.
+    """
+    from cinch.api.dashboard.router import issue_magic_link
+
+    message, user, chat = update.message, update.effective_user, update.effective_chat
+    if message is None or user is None or chat is None:
+        return
+
+    settings = cast(Settings, context.bot_data["settings"])
+    async with _db(context).session() as session:
+        owner = await UserRepository(session).get_or_create(user.id, chat.id)
+
+    try:
+        url = issue_magic_link(owner.id, settings)
+    except RuntimeError as exc:
+        # Missing webhook secret / URL — surface a clean actionable message.
+        logger.warning("dashboard_link_unavailable", reason=str(exc))
+        await message.reply_text("⚠️ Dashboard isn't fully configured on this instance.")
+        return
+
+    await message.reply_html(
+        "🔗 <b>One-time dashboard link</b> (valid ~10 min):\n"
+        f'<a href="{url}">Open the dashboard</a>\n\n'
+        "It sets a 7-day session cookie, so you won't need a fresh link every visit."
+    )
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Approve/Skip callback — authorize via the service, then update the message."""
     query = update.callback_query

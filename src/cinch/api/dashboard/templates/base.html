@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Cinch dashboard{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+    document.documentElement.classList.add('dark');
+  </script>
+</head>
+<body class="h-full bg-slate-950 text-slate-100 font-sans antialiased">
+<main class="max-w-6xl mx-auto p-6">{% block content %}{% endblock %}</main>
+</body>
+</html>

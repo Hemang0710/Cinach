@@ -268,3 +268,44 @@ async def test_discover_command_runs_cycle_when_configured(db: Database) -> None
     # Only the "🔎 Searching…" ack is sent; job cards themselves are sent by the notifier.
     assert message.reply_text.await_count == 1
     assert "search" in message.reply_text.await_args.args[0].lower()
+
+
+async def _dashboard_update() -> tuple[MagicMock, MagicMock]:
+    """A fresh /dashboard invocation update + captured reply_html mock."""
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    message.reply_html = AsyncMock()
+    update = MagicMock()
+    update.message = message
+    update.effective_user = SimpleNamespace(id=OWNER_TG_ID)
+    update.effective_chat = SimpleNamespace(id=CHAT_ID)
+    return update, message
+
+
+async def test_dashboard_command_dms_signed_magic_link(db: Database) -> None:
+    """/dashboard replies with an HTML link containing the signed magic-link URL."""
+    settings = Settings(
+        _env_file=None,
+        telegram_webhook_secret="test-secret-abc123",
+        telegram_webhook_url="https://cinch.example.com",
+    )
+    update, message = await _dashboard_update()
+
+    await handlers.dashboard_command(update, _context(db, settings))
+
+    message.reply_html.assert_awaited_once()
+    body = message.reply_html.await_args.args[0]
+    assert "cinch.example.com/dashboard/login?token=" in body
+    assert "10 min" in body  # user-visible TTL hint
+
+
+async def test_dashboard_command_fails_gracefully_when_unconfigured(db: Database) -> None:
+    """No webhook secret / URL configured → clean 'not configured' message."""
+    settings = Settings(_env_file=None)  # missing both
+    update, message = await _dashboard_update()
+
+    await handlers.dashboard_command(update, _context(db, settings))
+
+    message.reply_text.assert_awaited_once()
+    assert "configured" in message.reply_text.await_args.args[0].lower()
+    message.reply_html.assert_not_called()  # no link ever leaked
