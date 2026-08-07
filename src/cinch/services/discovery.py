@@ -15,6 +15,7 @@ the next cycle, without ever double-notifying.
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Protocol
 from uuid import UUID
@@ -71,15 +72,30 @@ class DiscoverySummary:
     skipped_no_resume: int = 0
 
 
+_PARENTHETICAL_RE = re.compile(r"\s*\([^)]*\)\s*")
+
+
+def _normalize_title(title: str) -> str:
+    """Strip parenthetical annotations from a role title before searching.
+
+    Real résumé titles carry qualifiers like ``"Full-Stack Engineer (Co-op)"`` or
+    ``"Backend Engineer (Contract)"`` that no job posting ever contains verbatim,
+    so leaving them in silently zeros out both Adzuna and the client-side filters
+    on RemoteOK/Arbeitnow. Collapses to the canonical role phrase.
+    """
+    return _PARENTHETICAL_RE.sub(" ", title).strip()
+
+
 def query_from_resume(master: MasterResume, *, where: str | None, results: int) -> JobQuery | None:
     """Derive a per-user search query from the master resume.
 
-    Uses the most recent experience title as the search term, falling back to the
-    first listed skill. Returns ``None`` when there is nothing to search on.
+    Uses the most recent experience title as the search term (with parenthetical
+    annotations stripped), falling back to the first listed skill. Returns ``None``
+    when there is nothing to search on.
     """
     what: str | None = None
     if master.experiences:
-        what = master.experiences[0].title  # most recent role assumed first
+        what = _normalize_title(master.experiences[0].title)  # most recent role assumed first
     elif master.skills:
         what = master.skills[0]
     if not what:

@@ -88,6 +88,43 @@ def test_query_from_resume() -> None:
     assert query.results == 3
 
 
+def test_query_from_resume_strips_parenthetical_annotations() -> None:
+    """Real résumé titles like 'Full-Stack Engineer (Co-op)' would zero out job APIs.
+
+    Regression guard: real-world Aug 2026 bug where discovery returned 0 forever
+    because the parenthetical never appeared in a real job title.
+    """
+    master = MasterResume.model_validate(
+        {
+            "experiences": [
+                {
+                    "company": "PopIn",
+                    "title": "Full-Stack Engineer (Co-op)",
+                    "start": "2025",
+                    "bullets": ["did stuff"],
+                }
+            ],
+        }
+    )
+    query = query_from_resume(master, where=None, results=5)
+    assert query is not None
+    assert query.what == "Full-Stack Engineer"  # (Co-op) stripped
+    # Also handles trailing whitespace / mid-string parens gracefully.
+    master2 = MasterResume.model_validate(
+        {
+            "experiences": [
+                {
+                    "company": "X",
+                    "title": "Backend Engineer (Contract, remote)",
+                    "start": "2025",
+                    "bullets": ["y"],
+                }
+            ],
+        }
+    )
+    assert query_from_resume(master2, where=None, results=5).what == "Backend Engineer"  # type: ignore[union-attr]
+
+
 async def test_cycle_discovers_tailors_notifies_then_is_idempotent(db: Database) -> None:
     await _seed_user_with_master(db, telegram_user_id=42)
     job_source = FakeJobSource([_raw("a1"), _raw("a2")])
