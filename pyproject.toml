@@ -35,6 +35,7 @@ dependencies = [
     "anthropic>=0.69",
     "openai>=1.50",  # also drives Groq (free, OpenAI-compatible) via a custom base URL
     "cryptography>=43",
+    "fpdf2>=2.7",  # pure-Python PDF generation for tailored resume delivery (Phase 9)
 ]
 
 [project.optional-dependencies]

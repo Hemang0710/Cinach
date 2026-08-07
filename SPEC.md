@@ -1,81 +1,90 @@
-# SPEC — Phase 6: Playwright assisted submission
+# SPEC — Phase 9: Tailored résumé PDF to Telegram
 
 ## Goal
 
-After a user taps **Approve** on a discovered job, an **optional**, off-by-default
-pipeline uses Playwright to **auto-submit the application when it can do so safely**,
-and otherwise hands the application back to the user on Telegram with the apply link.
+Every Approve/Skip card now carries the user's **tailored résumé as a `.pdf`
+attachment**, so they can preview exactly what would be submitted before tapping
+Approve. Solves the biggest transparency gap: today users see only rewritten
+"highlights" in the card body but not the actual document that would go out.
 
-This stays within the project's human-in-the-loop constraint: submission only ever acts
-on applications the user has **already individually Approved**. There is no unattended
-bulk auto-apply. It is enabled only by `SUBMISSION_ENABLED=true` (default `false`) and
-requires the optional `submit` extra plus `playwright install chromium`.
+## Non-goals
 
-## Behaviour
+- Not changing the auto-submission pipeline (Phase 6 still submits the master
+  résumé; a follow-up phase can swap in the tailored PDF there too).
+- Not swapping in a Chromium/HTML renderer — this phase deliberately avoids
+  adding ~200 MB and a system-package burden to the runtime image.
+- No new commands or user-visible state changes.
 
-- The **submitted resume is the user's real master resume**, rendered to a PDF by
-  Chromium's own `page.pdf()`. No LLM runs at submit time, so nothing is fabricated.
-- The submitter **never bypasses a login or CAPTCHA**, and submits only a form it can
-  confidently recognize (contact fields + a file upload + a submit control). Anything
-  else — including a missing/invalid master resume or missing name/email — becomes
-  `NEEDS_HUMAN`: the bot sends the user the apply link to finish manually.
-- **No double-submit.** Each `APPROVED` application is *claimed* (committed out of
-  `APPROVED` to a pessimistic `FAILED`/"interrupted" state) **before** any network
-  submission, then set to its true terminal state afterwards. A crash mid-submit leaves
-  it non-`APPROVED`, so it is never picked up again. `FAILED` is terminal and never
-  auto-retried.
+## Design
+
+- **Pure-Python renderer**: new `services/resume_pdf.py` uses **fpdf2** (MIT,
+  pure Python, no system libs) to render a MasterResume to PDF bytes. Works
+  on Render's free tier with no extra install steps.
+- **Anti-fabrication by construction**: the renderer only emits content from
+  the user's real master résumé. When a `TailoringResult` is supplied, bullets
+  are substituted **only where** `bullet.source_text` exactly matches a master
+  bullet AND `bullet.grounded is True`. Ungrounded or mismatched tailored
+  bullets are ignored — the master bullet is rendered as-is. So the anti-
+  fabrication guarantee that Phase 2's grounding validator gives is preserved
+  end-to-end: nothing invented can slip into the PDF.
+- **Fail-soft delivery**: `JobNotifier.notify` gains an **optional**
+  `resume_pdf: bytes | None = None` kwarg. The discovery orchestrator renders
+  the PDF and passes it; if rendering raises, we log and pass `None` — the
+  Approve/Skip card still ships (losing an attachment is a smaller regression
+  than losing the whole notification).
+- **Latin-1 core font + punctuation fallback**: fpdf2's core Helvetica is
+  Latin-1 only. A small `_PUNCT_MAP` transliterates common Unicode punctuation
+  (em/en dashes, smart quotes, ellipsis, bullet) to ASCII; accented Latin-1
+  characters (é, ñ, ü) pass through as-is; genuinely non-Latin codepoints
+  (emoji, CJK) fall back to `?`. Sufficient for English/European résumés.
 
 ## Interfaces & files
 
-New provider package `providers/submit/` (Playwright-free except the adapter):
+**New:**
+- `src/cinch/services/resume_pdf.py` — `render_master_resume_pdf(master, tailoring=None) -> bytes`
+  plus the internal `_tailored_lookup`, `_latin1`, `_ResumePDF`, and section
+  helpers.
+- `tests/test_resume_pdf.py` — 9 tests: valid PDF magic, empty master, deterministic
+  output, grounded lookup filter, substitution changes PDF, ungrounded /
+  unmatched substitution leaves it identical, Latin-1 normaliser.
+- `tests/test_notify.py` — 3 tests: send_application skips `send_document` when
+  no PDF; attaches it (with `filename="resume.pdf"`) when provided; TelegramNotifier
+  forwards the kwarg.
 
-- `base.py` — `Submitter` Protocol; `SubmissionOutcome` (`SUBMITTED`/`NEEDS_HUMAN`/
-  `FAILED`); `SubmissionResult`, `Applicant` dataclasses; `SubmitterError`;
-  `get_submitter(settings)` (lazy-imports the adapter; raises `SubmitterError` without
-  the extra).
-- `render.py` — pure `build_resume_html(master)` (real content only, HTML-escaped).
-- `playwright.py` — `PlaywrightSubmitter` (lazy `playwright.async_api`; render PDF,
-  safety-gate, best-effort fill + submit; PII-free logging). Integration-only; omitted
-  from coverage.
-- `fake.py` — `FakeSubmitter` (scripted outcomes for tests).
+**Modified:**
+- `src/cinch/bot/notify.py` — `send_application` + `TelegramNotifier.notify`
+  accept optional `resume_pdf`; when present, `bot.send_document(...)` follows
+  the card message.
+- `src/cinch/services/discovery.py` — `JobNotifier` protocol gains the same
+  optional kwarg. `_process_job` renders the PDF via new fail-soft helper
+  `_render_resume_pdf_or_none(master, tailoring)` and passes it to `notifier.notify`.
+- `pyproject.toml` — add `fpdf2>=2.7` (pure Python, ~1 MB with fonttools+pillow).
+- Docs: README/CLAUDE line about the new attachment.
 
-Service & wiring (mirrors the discovery pipeline):
+## Safety properties (asserted by tests)
 
-- `services/submission.py` — `SubmissionService` + `SubmissionNotifier` Protocol +
-  `SubmissionSummary`. Takes a `Database` (per-app sessions for the claim/record commits).
-- `api/scheduler.py` — `run_submission_cycle` (gated on `submission_enabled`) +
-  `start_submission_scheduler` (one non-overlapping interval job).
-- `api/app.py` — starts the submission scheduler in the lifespan when enabled + a bot exists.
-- `bot/notify.py` + `bot/messages.py` — `TelegramSubmissionNotifier` +
-  `format_submission_message` (submitted ✅ / needs-you 🔗 / failed ⚠️).
-
-Domain / persistence:
-
-- `domain/enums.py` — `ApplicationStatus.NEEDS_HUMAN`.
-- `domain/resume.py` — `name` / `email` / `phone` on `MasterResume`.
-- `db/models.py` + `domain/models.py` — `submitted_at`, `submission_detail` on the application.
-- `db/repositories.py` — `list_by_status`, `claim_for_submission`, `record_submission`.
-- `migrations/versions/0002_submission_fields.py` — adds the two nullable columns.
-
-Config (all default-safe): `SUBMISSION_ENABLED=false`, `SUBMISSION_INTERVAL_MINUTES=5`,
-`SUBMISSION_HEADLESS=true`, `SUBMISSION_TIMEOUT_SECONDS=60`; `submit` pip extra.
-
-## Out of scope
-
-- Per-ATS custom adapters (Greenhouse/Lever/Workday specifics) — the generic form
-  heuristic + `NEEDS_HUMAN` handoff is the v1; new adapters implement `Submitter`.
-- Solving CAPTCHAs or automating logins (deliberately never done).
-- Persisting the exact tailored highlights as the submitted document (the master resume
-  is submitted; tailored emphasis is a possible future layer).
-- Auto-retrying `FAILED` submissions.
+1. Rendered PDF is valid (`%PDF-` magic, `%%EOF` in trailer).
+2. Same master → same output bytes (ignoring the fpdf timestamp trailer).
+3. `_tailored_lookup` includes only bullets with `grounded=True`.
+4. A grounded substitution actually changes the output PDF.
+5. An **ungrounded** substitution produces the SAME bytes as the baseline (proof
+   nothing invented leaked through).
+6. A tailored bullet whose `source_text` doesn't match any master bullet also
+   produces the baseline PDF (safe fallback).
+7. `send_application` without `resume_pdf` never calls `bot.send_document`.
+8. With `resume_pdf`, `bot.send_document` is called once with `filename="resume.pdf"`.
 
 ## Verification
 
-- `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`, `uv run pytest`
-  all green; coverage ≥ 80%.
-- `test_migrations.py` proves `0002` matches the ORM with no drift.
-- `test_submission.py` proves: successful submit, no-double-submit, NEEDS_HUMAN handoffs
-  (missing/invalid contact + submitter-reported), FAILED-is-terminal, crash containment,
-  notify-failure isolation, claim-once, and the disabled-scheduler no-op.
-- Manual (optional): `uv sync --extra submit && playwright install chromium`,
-  `SUBMISSION_ENABLED=true` in staging, `/demo` → Approve → observe the outcome message.
+- `uv run ruff check .` / `ruff format --check .` / `uv run mypy` / `uv run pytest`
+  — all green, coverage ≥ 80%.
+- Manual smoke (post-deploy): trigger `/discover`; each Approve/Skip card is now
+  followed by a `resume.pdf` file message you can tap to preview.
+
+## Out of scope (future work)
+
+- Bundling a Unicode TTF (DejaVu Sans, ~750 KB) for faithful non-Latin
+  rendering — Latin-1 fallback is sufficient for English résumés.
+- Refactoring Phase 6's `PlaywrightSubmitter` to reuse this pure-Python
+  renderer (would drop the Chromium requirement for auto-submission too).
+- Server-side PDF thumbnails / preview panels (Phase 10 dashboard territory).

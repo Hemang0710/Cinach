@@ -19,10 +19,13 @@ produce better applications than spraying hundreds of generic ones.
 ## Why Cinch
 
 - **Human-in-the-loop by design** — no unattended bulk auto-apply. You approve
-  every application from your phone.
+  every application from your phone. Each Approve/Skip card comes with the
+  **tailored résumé as a `.pdf` attachment** so you can preview exactly what
+  would be submitted.
 - **Never fabricates** — tailoring is keyword alignment, reordering, and
   emphasis of your *real* experience. A validation step flags any bullet not
-  grounded in your master resume.
+  grounded in your master resume, and ungrounded rewrites are excluded from
+  the PDF as well.
 - **Plays fair** — uses official/licensed job APIs (Adzuna first) behind a
   pluggable interface, not scraping.
 - **Provider-agnostic LLM** — Anthropic, **Groq (free)**, OpenAI, Google behind one interface.
