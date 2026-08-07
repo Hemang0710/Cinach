@@ -26,8 +26,9 @@ produce better applications than spraying hundreds of generic ones.
   emphasis of your *real* experience. A validation step flags any bullet not
   grounded in your master resume, and ungrounded rewrites are excluded from
   the PDF as well.
-- **Plays fair** — uses official/licensed job APIs (Adzuna first) behind a
-  pluggable interface, not scraping.
+- **Plays fair** — uses official/licensed job APIs (Adzuna, RemoteOK, Arbeitnow)
+  behind a pluggable interface, never scraping. Fans out to every enabled
+  source in one cycle so you see many more relevant postings.
 - **Provider-agnostic LLM** — Anthropic, **Groq (free)**, OpenAI, Google behind one interface.
 
 ## Quickstart

@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     grounding_use_llm_judge: bool = False
 
     # --- Job sources -------------------------------------------------------
+    # Comma-separated names from ``JobSourceName``. Common values:
+    #   adzuna,remoteok,arbeitnow  -> fans out to all three (CompositeJobSource)
+    #   remoteok,arbeitnow         -> free-only, no Adzuna signup needed
+    # A source with missing credentials is logged and skipped, so a partial
+    # config still yields a working pipeline (as long as at least one succeeds).
+    job_sources: str = "adzuna"
     adzuna_app_id: str | None = None
     adzuna_app_key: str | None = None
     adzuna_country: str = "us"  # Adzuna is country-scoped (us, gb, in, ...)

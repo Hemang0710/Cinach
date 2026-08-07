@@ -160,8 +160,11 @@ class DiscoveryService:
         raw: RawJob,
         summary: DiscoverySummary,
     ) -> None:
+        # Multi-source pipelines set ``raw.source`` per posting (each adapter stamps
+        # its own name); fall back to the calling ``JobSource.source_name`` for
+        # single-source callers that pre-date Phase 7.
         job = await self._jobs.get_or_create(
-            source=self._job_source.source_name,
+            source=raw.source or self._job_source.source_name,
             external_id=raw.external_id,
             title=raw.title,
             company=raw.company,

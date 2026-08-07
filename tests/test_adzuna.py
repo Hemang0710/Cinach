@@ -51,6 +51,7 @@ async def test_search_parses_results() -> None:
     assert jobs[0].url == "https://www.adzuna.com/details/12345"
     assert jobs[0].location == "Remote, US"
     assert jobs[1].company == "Unknown company"  # fallback when display_name missing
+    assert all(j.source is JobSourceName.ADZUNA for j in jobs)  # source is stamped (Phase 7)
 
 
 async def test_non_2xx_raises_job_source_error() -> None:

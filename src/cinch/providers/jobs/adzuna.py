@@ -89,4 +89,5 @@ class AdzunaJobSource:
             description=item.get("description", ""),
             url=item.get("redirect_url", ""),
             location=location.get("display_name"),
+            source=JobSourceName.ADZUNA,
         )

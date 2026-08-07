@@ -1,90 +1,95 @@
-# SPEC — Phase 9: Tailored résumé PDF to Telegram
+# SPEC — Phase 7: Multi-source job discovery
 
 ## Goal
 
-Every Approve/Skip card now carries the user's **tailored résumé as a `.pdf`
-attachment**, so they can preview exactly what would be submitted before tapping
-Approve. Solves the biggest transparency gap: today users see only rewritten
-"highlights" in the card body but not the actual document that would go out.
+Discovery is no longer limited to Adzuna. Users can enable multiple **free**
+official job APIs — RemoteOK, Arbeitnow — alongside Adzuna, and Cinch fans out
+to all of them in one cycle. Immediate user-visible impact: `/discover` returns
+many more (and often more relevant) postings, even when Adzuna's free tier
+returns 0 for a query.
 
 ## Non-goals
 
-- Not changing the auto-submission pipeline (Phase 6 still submits the master
-  résumé; a follow-up phase can swap in the tailored PDF there too).
-- Not swapping in a Chromium/HTML renderer — this phase deliberately avoids
-  adding ~200 MB and a system-package burden to the runtime image.
-- No new commands or user-visible state changes.
+- No scraping. All new sources are documented public JSON APIs.
+- No LinkedIn/Indeed automation of any kind (see [SECURITY.md](SECURITY.md) — the
+  project's non-negotiable rule).
+- No ATS-aware submission decisions yet — that's the follow-up Phase 7b.
+- No JSearch/RapidAPI adapter yet — deferred to Phase 7b (needs signup).
 
 ## Design
 
-- **Pure-Python renderer**: new `services/resume_pdf.py` uses **fpdf2** (MIT,
-  pure Python, no system libs) to render a MasterResume to PDF bytes. Works
-  on Render's free tier with no extra install steps.
-- **Anti-fabrication by construction**: the renderer only emits content from
-  the user's real master résumé. When a `TailoringResult` is supplied, bullets
-  are substituted **only where** `bullet.source_text` exactly matches a master
-  bullet AND `bullet.grounded is True`. Ungrounded or mismatched tailored
-  bullets are ignored — the master bullet is rendered as-is. So the anti-
-  fabrication guarantee that Phase 2's grounding validator gives is preserved
-  end-to-end: nothing invented can slip into the PDF.
-- **Fail-soft delivery**: `JobNotifier.notify` gains an **optional**
-  `resume_pdf: bytes | None = None` kwarg. The discovery orchestrator renders
-  the PDF and passes it; if rendering raises, we log and pass `None` — the
-  Approve/Skip card still ships (losing an attachment is a smaller regression
-  than losing the whole notification).
-- **Latin-1 core font + punctuation fallback**: fpdf2's core Helvetica is
-  Latin-1 only. A small `_PUNCT_MAP` transliterates common Unicode punctuation
-  (em/en dashes, smart quotes, ellipsis, bullet) to ASCII; accented Latin-1
-  characters (é, ñ, ü) pass through as-is; genuinely non-Latin codepoints
-  (emoji, CJK) fall back to `?`. Sufficient for English/European résumés.
+- **`RawJob.source: JobSourceName | None`** — each adapter stamps its own
+  identity so the multi-source pipeline can preserve provenance. Optional for
+  backward compatibility; discovery falls back to the calling
+  `JobSource.source_name` when unset.
+- **New adapters** — `RemoteOKJobSource`, `ArbeitnowJobSource`. Both use free
+  public JSON endpoints with no auth. Each sets a Cinch `User-Agent`, strips
+  HTML from descriptions (rough regex + `html.unescape`), and filters
+  client-side against `JobQuery.what` since the free feeds don't accept
+  server-side keyword params.
+- **`CompositeJobSource`** — fans out to N adapters via `asyncio.gather`.
+  Per-source failures are caught and logged (`composite_source_failed`) so one
+  dead API can't kill the whole cycle. Deduplication is deliberately left to
+  `JobRepository`'s existing `(source, external_id)` unique constraint — the
+  same posting from two sources is stored twice (once per source), which is
+  the correct behaviour (they're separate postings with separate apply URLs).
+- **`JOB_SOURCES`** env var — comma-separated list. Default `"adzuna"`
+  preserves prior behaviour. Common production configs: `"adzuna,remoteok,arbeitnow"`,
+  or `"remoteok,arbeitnow"` for a fully-free setup with no Adzuna signup.
+- **Fail-soft factory** — sources with missing credentials are logged and
+  skipped rather than raising. If only one source survives, it's returned
+  directly (no composite wrapper). Only when zero sources survive does the
+  factory raise `JobSourceError`.
 
 ## Interfaces & files
 
 **New:**
-- `src/cinch/services/resume_pdf.py` — `render_master_resume_pdf(master, tailoring=None) -> bytes`
-  plus the internal `_tailored_lookup`, `_latin1`, `_ResumePDF`, and section
-  helpers.
-- `tests/test_resume_pdf.py` — 9 tests: valid PDF magic, empty master, deterministic
-  output, grounded lookup filter, substitution changes PDF, ungrounded /
-  unmatched substitution leaves it identical, Latin-1 normaliser.
-- `tests/test_notify.py` — 3 tests: send_application skips `send_document` when
-  no PDF; attaches it (with `filename="resume.pdf"`) when provided; TelegramNotifier
-  forwards the kwarg.
+- `src/cinch/providers/jobs/remoteok.py` — `RemoteOKJobSource` + `_strip_html`.
+- `src/cinch/providers/jobs/arbeitnow.py` — `ArbeitnowJobSource`.
+- `src/cinch/providers/jobs/composite.py` — `CompositeJobSource` (concurrent
+  fan-out, per-source error isolation).
+- `tests/test_remoteok.py` — 4 tests (parse + filter + source-stamp + HTTP error + strip helper).
+- `tests/test_arbeitnow.py` — 3 tests (parse + filter + source-stamp + malformed-JSON + HTTP error).
+- `tests/test_job_source_composite.py` — 8 tests (merge, per-source isolation,
+  factory: single vs composite, missing creds skipped, unknown names skipped,
+  no-source-survives raises).
 
 **Modified:**
-- `src/cinch/bot/notify.py` — `send_application` + `TelegramNotifier.notify`
-  accept optional `resume_pdf`; when present, `bot.send_document(...)` follows
-  the card message.
-- `src/cinch/services/discovery.py` — `JobNotifier` protocol gains the same
-  optional kwarg. `_process_job` renders the PDF via new fail-soft helper
-  `_render_resume_pdf_or_none(master, tailoring)` and passes it to `notifier.notify`.
-- `pyproject.toml` — add `fpdf2>=2.7` (pure Python, ~1 MB with fonttools+pillow).
-- Docs: README/CLAUDE line about the new attachment.
+- `src/cinch/domain/enums.py` — added `JobSourceName.REMOTEOK`, `ARBEITNOW`.
+- `src/cinch/providers/jobs/base.py` — `RawJob.source` optional field.
+- `src/cinch/providers/jobs/adzuna.py` — stamps `source=ADZUNA`.
+- `src/cinch/providers/jobs/__init__.py` — `get_job_source` now iterates
+  `settings.job_sources`, builds each adapter (fail-soft), returns single
+  source or composite as appropriate.
+- `src/cinch/core/config.py` — `job_sources: str = "adzuna"` setting.
+- `src/cinch/services/discovery.py` — persists jobs under `raw.source or
+  self._job_source.source_name` (backward compatible).
+- `tests/test_adzuna.py` — asserts `RawJob.source` is stamped now.
+- Docs: SPEC + README + `.env.example`.
 
 ## Safety properties (asserted by tests)
 
-1. Rendered PDF is valid (`%PDF-` magic, `%%EOF` in trailer).
-2. Same master → same output bytes (ignoring the fpdf timestamp trailer).
-3. `_tailored_lookup` includes only bullets with `grounded=True`.
-4. A grounded substitution actually changes the output PDF.
-5. An **ungrounded** substitution produces the SAME bytes as the baseline (proof
-   nothing invented leaked through).
-6. A tailored bullet whose `source_text` doesn't match any master bullet also
-   produces the baseline PDF (safe fallback).
-7. `send_application` without `resume_pdf` never calls `bot.send_document`.
-8. With `resume_pdf`, `bot.send_document` is called once with `filename="resume.pdf"`.
+1. Every adapter's `RawJob` carries its own `source` value (Adzuna, RemoteOK, Arbeitnow).
+2. Client-side keyword filter matches title OR any tag — not fabricated relevance.
+3. HTML content in descriptions is stripped before storage (LLM prompts stay clean).
+4. `CompositeJobSource` never dies from a single upstream failure; peers still deliver.
+5. Factory skips sources with missing creds (partial config still works).
+6. Factory raises loudly if zero sources survive (never silently return empty).
 
 ## Verification
 
-- `uv run ruff check .` / `ruff format --check .` / `uv run mypy` / `uv run pytest`
-  — all green, coverage ≥ 80%.
-- Manual smoke (post-deploy): trigger `/discover`; each Approve/Skip card is now
-  followed by a `resume.pdf` file message you can tap to preview.
+- `uv run ruff check .` · `ruff format --check .` · `uv run mypy` ·
+  `uv run pytest` — all green, coverage ≥ 80%.
+- Manual smoke (post-deploy): set `JOB_SOURCES=adzuna,remoteok,arbeitnow` in
+  Render → save → wait for redeploy → `/discover` in Telegram → you should see
+  jobs from multiple sources (visible in the Job's `source` column in the DB
+  and in future dashboard views).
 
-## Out of scope (future work)
+## Out of scope (future work — Phase 7b)
 
-- Bundling a Unicode TTF (DejaVu Sans, ~750 KB) for faithful non-Latin
-  rendering — Latin-1 fallback is sufficient for English résumés.
-- Refactoring Phase 6's `PlaywrightSubmitter` to reuse this pure-Python
-  renderer (would drop the Chromium requirement for auto-submission too).
-- Server-side PDF thumbnails / preview panels (Phase 10 dashboard territory).
+- JSearch (RapidAPI free tier) adapter.
+- ATS detection from apply URL (Greenhouse/Lever/Workable/Ashby) so Phase 6
+  auto-submits only on ATS-eligible postings and hands off LinkedIn/Indeed.
+- Per-source rate-limit budgets (currently we rely on discovery-interval politeness).
+- Result-level dedup across sources (same job from Adzuna + Arbeitnow — currently
+  stored twice under different sources, which is intentional but reviewable).
