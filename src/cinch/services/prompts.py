@@ -15,6 +15,7 @@ from cinch.domain.resume import MasterResume
 # Bumped whenever the prompt text or output contract changes (traceability).
 PROMPT_VERSION = "2025-08-01"
 PDF_INGEST_PROMPT_VERSION = "2026-08-06"
+EMAIL_CLASSIFY_PROMPT_VERSION = "2026-08-07"
 
 SYSTEM_PROMPT = """\
 You are a resume-tailoring assistant. You rewrite a candidate's REAL resume bullets \
@@ -105,4 +106,45 @@ def build_user_prompt(master: MasterResume, job: Job) -> str:
         f"CANDIDATE SKILLS (real): {skills}\n\n"
         f"CANDIDATE MASTER BULLETS (real — rewrite only these):\n{numbered}\n\n"
         "Return the tailored bullets as the specified JSON object."
+    )
+
+
+EMAIL_CLASSIFY_SYSTEM_PROMPT = """\
+You classify recruiter / hiring-manager emails about a job application into ONE bucket. \
+You are strictly a classifier — you do not summarise, quote, or expose the email body.
+
+BUCKETS — pick exactly one:
+- "interview_invited" — recruiter wants to schedule an interview / phone screen / next step.
+- "interview_scheduled" — a specific time/date is CONFIRMED for the interview.
+- "offer" — a job offer is being extended.
+- "rejection" — the candidate is not moving forward.
+- "acknowledgement" — auto-reply / "we received your application"; no state change.
+- "other" — anything else (spam, unrelated, unclear).
+
+Also extract the candidate's likely employer/company from the email metadata (sender \
+domain, signature). Never invent a company; leave company_hint null if unclear.
+
+OUTPUT FORMAT — respond with ONLY a single JSON object, no prose, no code fences:
+{"classification": "<one of the bucket ids above>", \
+"company_hint": "<company name or null>", \
+"summary": "<one short sentence, no quoted email text, no PII>"}\
+"""
+
+
+def build_email_classify_user_prompt(
+    *,
+    from_email: str,
+    from_name: str | None,
+    subject: str,
+    body_text: str,
+) -> str:
+    """Assemble the user turn for the email classifier — includes light context."""
+    # Keep the body bounded so a huge marketing blast can't blow the token budget.
+    trimmed_body = (body_text or "")[:4000]
+    return (
+        "Classify this inbound email about a job application.\n\n"
+        f"FROM: {from_name or ''} <{from_email}>\n"
+        f"SUBJECT: {subject}\n\n"
+        f"BODY:\n{trimmed_body}\n\n"
+        "Return only the JSON object described in the system prompt."
     )

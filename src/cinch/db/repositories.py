@@ -263,3 +263,50 @@ class ApplicationRepository(BaseRepository[ApplicationORM, Application]):
         await self._session.flush()
         await self._session.refresh(orm)
         return self._to_domain(orm)
+
+    async def list_candidates_for_email_match(self, user_id: UUID) -> list[Application]:
+        """Applications a real recruiter email could plausibly refer to for ``user_id``.
+
+        Post-submit statuses only: an email can only be about an application the
+        user has actually engaged with. Excludes DISCOVERED / TAILORED / SKIPPED /
+        FAILED (nothing sent, so no reply possible) and terminal ACCEPTED /
+        REJECTED (already resolved). Ordered newest-first so ties break toward the
+        most recent engagement.
+        """
+        allowed = {
+            ApplicationStatus.APPROVED,
+            ApplicationStatus.SUBMITTED,
+            ApplicationStatus.NEEDS_HUMAN,
+            ApplicationStatus.INTERVIEW_INVITED,
+            ApplicationStatus.INTERVIEW_SCHEDULED,
+            ApplicationStatus.OFFERED,
+        }
+        result = await self._session.scalars(
+            select(ApplicationORM)
+            .where(ApplicationORM.user_id == user_id, ApplicationORM.status.in_(allowed))
+            .order_by(ApplicationORM.updated_at.desc())
+        )
+        return [self._to_domain(orm) for orm in result.all()]
+
+    async def record_email_update(
+        self,
+        application_id: UUID,
+        *,
+        status: ApplicationStatus,
+        summary: str,
+        received_at: datetime,
+    ) -> Application | None:
+        """Advance an application's status from a classified email + record evidence.
+
+        ``summary`` is the LLM's short PII-lean note for the dashboard; the full
+        email body is never persisted. ``received_at`` is the email header time.
+        """
+        orm = await self._session.get(ApplicationORM, application_id)
+        if orm is None:
+            return None
+        orm.status = status
+        orm.last_email_summary = summary
+        orm.last_email_at = received_at
+        await self._session.flush()
+        await self._session.refresh(orm)
+        return self._to_domain(orm)

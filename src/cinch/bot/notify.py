@@ -13,7 +13,12 @@ from telegram import Bot
 from telegram.constants import ParseMode
 
 from cinch.bot.keyboards import approve_skip_markup
-from cinch.bot.messages import format_application_message, format_submission_message
+from cinch.bot.messages import (
+    format_application_message,
+    format_email_update_message,
+    format_submission_message,
+)
+from cinch.domain.enums import ApplicationStatus
 from cinch.domain.models import Job, TailoringResult
 from cinch.providers.submit.base import SubmissionOutcome
 
@@ -109,3 +114,18 @@ class TelegramSubmissionNotifier:
         await send_submission_update(
             self._bot, chat_id=chat_id, job=job, outcome=outcome, detail=detail
         )
+
+
+async def send_email_status_update(
+    bot: Bot, *, chat_id: int, job: Job, status: ApplicationStatus, summary: str
+) -> None:
+    """Send a Telegram nudge when an inbound email advanced an application's status.
+
+    Terminal notification — no buttons. The user can open the dashboard for detail.
+    """
+    await bot.send_message(
+        chat_id=chat_id,
+        text=format_email_update_message(job, status, summary),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )

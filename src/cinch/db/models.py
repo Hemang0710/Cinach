@@ -114,5 +114,9 @@ class ApplicationORM(TimestampMixin, Base):
     # Submission outcome (Phase 6). Nullable: unset until the pipeline attempts a submit.
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     submission_detail: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Inbound-email tracking (Phase 11). Populated by the Zapier/Make email webhook
+    # after LLM classification matched an email to this application.
+    last_email_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_email_summary: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     user: Mapped[UserORM] = relationship(back_populates="applications")
