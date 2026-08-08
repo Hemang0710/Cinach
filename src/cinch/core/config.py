@@ -108,6 +108,13 @@ class Settings(BaseSettings):
     submission_headless: bool = True
     submission_timeout_seconds: int = 60
 
+    # --- Email webhook (Phase 11) ------------------------------------------
+    # Shared secret for POST /webhook/email — must match the header Zapier/Make
+    # sends (X-Cinch-Webhook-Secret). When unset the webhook route returns 503
+    # and the LLM classifier is never invoked. Distinct from the Telegram
+    # webhook secret so the two rotate independently.
+    interview_webhook_secret: str | None = None
+
     # --- Security ----------------------------------------------------------
     # Fernet key for encrypting resume PII at rest. Generate with
     # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.

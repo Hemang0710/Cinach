@@ -84,6 +84,9 @@ class Application(DomainModel):
     # Populated by the Phase 6 submission pipeline; ``None`` until an attempt is made.
     submitted_at: datetime | None = None
     submission_detail: str | None = None  # outcome note / handoff URL / error (no PII)
+    # Populated by the Phase 11 email webhook after LLM classification.
+    last_email_at: datetime | None = None
+    last_email_summary: str | None = None  # short LLM-produced note (no full body ever)
     created_at: datetime
     updated_at: datetime
 
