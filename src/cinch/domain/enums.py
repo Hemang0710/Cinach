@@ -34,6 +34,9 @@ class ApplicationStatus(StrEnum):
     OFFERED = "offered"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    # Phase 12 — a SUBMITTED application gone quiet past the ghost threshold. A
+    # presumption, not a dead end: an inbound recruiter email re-advances it.
+    GHOSTED = "ghosted"
 
 
 class JobSourceName(StrEnum):

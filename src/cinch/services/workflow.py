@@ -34,6 +34,15 @@ class DecisionOutcome(StrEnum):
     UNAUTHORIZED = "unauthorized"  # caller does not own the application
 
 
+class AcceptOutcome(StrEnum):
+    """Result of an ``/accept`` action — what the bot should tell the user."""
+
+    ACCEPTED = "accepted"
+    NOT_OFFERED = "not_offered"  # idempotent no-op (not in OFFERED — nothing to accept)
+    NOT_FOUND = "not_found"  # unknown application id
+    UNAUTHORIZED = "unauthorized"  # caller does not own the application
+
+
 # Statuses that mean a decision has already been recorded — re-deciding is a no-op.
 _TERMINAL: frozenset[ApplicationStatus] = frozenset(
     {ApplicationStatus.APPROVED, ApplicationStatus.SKIPPED, ApplicationStatus.SUBMITTED}
@@ -87,3 +96,25 @@ class ApprovalService:
             if decision is ApprovalDecision.APPROVE
             else DecisionOutcome.SKIPPED
         )
+
+    async def accept(self, *, telegram_user_id: int, application_id: UUID) -> AcceptOutcome:
+        """Accept an offer, moving an ``OFFERED`` application to ``ACCEPTED``.
+
+        Same authorization + idempotency discipline as :meth:`decide`:
+
+        1. the application must exist (else :data:`AcceptOutcome.NOT_FOUND`);
+        2. the caller's Telegram id must own it (else :data:`AcceptOutcome.UNAUTHORIZED`,
+           status untouched);
+        3. only an ``OFFERED`` application can be accepted — any other status
+           (including a double-tapped ``ACCEPTED``) is :data:`AcceptOutcome.NOT_OFFERED`.
+        """
+        application = await self._applications.get(application_id)
+        if application is None:
+            return AcceptOutcome.NOT_FOUND
+
+        owner = await self._users.get(application.user_id)
+        if owner is None or owner.telegram_user_id != telegram_user_id:
+            return AcceptOutcome.UNAUTHORIZED
+
+        accepted = await self._applications.accept_offer(application_id)
+        return AcceptOutcome.ACCEPTED if accepted is not None else AcceptOutcome.NOT_OFFERED

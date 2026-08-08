@@ -13,7 +13,11 @@ from typing import Any
 
 from telegram import Bot
 
-from cinch.bot.notify import TelegramNotifier, TelegramSubmissionNotifier
+from cinch.bot.notify import (
+    TelegramGhostNotifier,
+    TelegramNotifier,
+    TelegramSubmissionNotifier,
+)
 from cinch.core.config import Settings
 from cinch.core.logging import get_logger
 from cinch.db.session import Database
@@ -21,6 +25,7 @@ from cinch.providers.jobs import get_job_source
 from cinch.providers.llm import get_llm_provider
 from cinch.providers.submit import get_submitter
 from cinch.services.discovery import DiscoveryService, DiscoverySummary
+from cinch.services.lifecycle import GhostedSweepService, GhostedSweepSummary
 from cinch.services.submission import SubmissionService, SubmissionSummary
 from cinch.services.tailoring import TailoringService
 
@@ -102,5 +107,46 @@ def start_submission_scheduler(db: Database, settings: Settings, bot: Bot) -> An
     scheduler.start()
     logger.info(
         "submission_scheduler_started", interval_minutes=settings.submission_interval_minutes
+    )
+    return scheduler
+
+
+async def run_ghosted_sweep(db: Database, settings: Settings, bot: Bot) -> GhostedSweepSummary:
+    """Run one idempotent ghosted sweep.
+
+    Gated on ``ghosted_sweep_enabled``: when off, returns an empty summary without
+    touching the database, so a disabled deploy is a guaranteed no-op.
+    """
+    if not settings.ghosted_sweep_enabled:
+        return GhostedSweepSummary()
+    notifier = TelegramGhostNotifier(bot)
+    async with db.session() as session:
+        service = GhostedSweepService(
+            session, notifier=notifier, quiet_days=settings.ghosted_after_days
+        )
+        return await service.run()
+
+
+def start_ghosted_scheduler(db: Database, settings: Settings, bot: Bot) -> Any:
+    """Create, start, and return an AsyncIOScheduler running the ghosted sweep.
+
+    One interval job, non-overlapping (``max_instances=1``, ``coalesce=True``),
+    mirroring the other schedulers. The caller owns shutdown.
+    """
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        run_ghosted_sweep,
+        trigger="interval",
+        minutes=settings.ghosted_sweep_interval_minutes,
+        args=[db, settings, bot],
+        id="ghosted_sweep",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+    logger.info(
+        "ghosted_scheduler_started", interval_minutes=settings.ghosted_sweep_interval_minutes
     )
     return scheduler

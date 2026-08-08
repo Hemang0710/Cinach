@@ -31,6 +31,7 @@ _STATUS_ORDER: tuple[ApplicationStatus, ...] = (
     ApplicationStatus.OFFERED,
     ApplicationStatus.ACCEPTED,
     ApplicationStatus.REJECTED,
+    ApplicationStatus.GHOSTED,
     ApplicationStatus.SKIPPED,
     ApplicationStatus.FAILED,
 )

@@ -108,6 +108,15 @@ class Settings(BaseSettings):
     submission_headless: bool = True
     submission_timeout_seconds: int = 60
 
+    # --- Ghosted sweep (Phase 12) ------------------------------------------
+    # A SUBMITTED application silent past ``ghosted_after_days`` is flagged
+    # GHOSTED so a long-dead application stops reading as "still in play". OFF
+    # unless explicitly enabled, like the other schedulers. Default interval is
+    # daily (1440 min) — this is housekeeping, not a hot loop.
+    ghosted_sweep_enabled: bool = False
+    ghosted_after_days: int = 30
+    ghosted_sweep_interval_minutes: int = 1440
+
     # --- Email webhook (Phase 11) ------------------------------------------
     # Shared secret for POST /webhook/email — must match the header Zapier/Make
     # sends (X-Cinch-Webhook-Secret). When unset the webhook route returns 503

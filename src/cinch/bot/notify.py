@@ -12,10 +12,12 @@ from uuid import UUID
 from telegram import Bot
 from telegram.constants import ParseMode
 
-from cinch.bot.keyboards import approve_skip_markup
+from cinch.bot.keyboards import accept_markup, approve_skip_markup
 from cinch.bot.messages import (
     format_application_message,
     format_email_update_message,
+    format_ghosted_message,
+    format_offer_card,
     format_submission_message,
 )
 from cinch.domain.enums import ApplicationStatus
@@ -129,3 +131,39 @@ async def send_email_status_update(
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
+
+
+async def send_offer_card(bot: Bot, *, chat_id: int, job: Job, application_id: UUID) -> None:
+    """Send one open-offer card with an Accept button (used by ``/accept``)."""
+    await bot.send_message(
+        chat_id=chat_id,
+        text=format_offer_card(job),
+        parse_mode=ParseMode.HTML,
+        reply_markup=accept_markup(application_id),
+        disable_web_page_preview=True,
+    )
+
+
+async def send_ghosted_notice(bot: Bot, *, chat_id: int, job: Job, quiet_days: int) -> None:
+    """Send the terminal "no response" nudge for a newly-ghosted application."""
+    await bot.send_message(
+        chat_id=chat_id,
+        text=format_ghosted_message(job, quiet_days=quiet_days),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+class TelegramGhostNotifier:
+    """Adapts a Telegram ``Bot`` to the sweep layer's ``GhostNotifier`` protocol.
+
+    Lives in the bot layer so ``services/`` never imports Telegram; the sweep
+    orchestrator depends only on the protocol.
+    """
+
+    def __init__(self, bot: Bot) -> None:
+        self._bot = bot
+
+    async def notify_ghosted(self, *, chat_id: int, job: Job, quiet_days: int) -> None:
+        """Deliver a ghosted notice via Telegram (rate-limited by AIORateLimiter)."""
+        await send_ghosted_notice(self._bot, chat_id=chat_id, job=job, quiet_days=quiet_days)

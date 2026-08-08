@@ -15,6 +15,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from cinch.services.workflow import ApprovalDecision
 
 _SEP = ":"
+_ACCEPT_ACTION = "accept"  # Phase 12 — offer-acceptance callback namespace
 
 
 def approve_skip_markup(application_id: UUID) -> InlineKeyboardMarkup:
@@ -45,3 +46,34 @@ def parse_callback(data: str) -> tuple[ApprovalDecision, UUID]:
     if not sep:
         raise ValueError(f"malformed callback data: {data!r}")
     return ApprovalDecision(action), UUID(raw_id)
+
+
+def accept_markup(application_id: UUID) -> InlineKeyboardMarkup:
+    """Build the single-button Accept keyboard for one open offer."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ Accept",
+                    callback_data=f"{_ACCEPT_ACTION}{_SEP}{application_id}",
+                )
+            ]
+        ]
+    )
+
+
+def parse_accept_callback(data: str) -> UUID | None:
+    """Parse an ``accept:<uuid>`` callback, or return ``None`` if it isn't one.
+
+    Returning ``None`` (rather than raising) lets the callback router cheaply
+    distinguish an accept press from an approve/skip press before delegating the
+    latter to :func:`parse_callback`.
+
+    Raises:
+        ValueError: the action is ``accept`` but the id is not a valid UUID
+            (a forged/garbled payload — rejected, never silently mishandled).
+    """
+    action, sep, raw_id = data.partition(_SEP)
+    if not sep or action != _ACCEPT_ACTION:
+        return None
+    return UUID(raw_id)

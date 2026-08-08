@@ -1,112 +1,142 @@
-# SPEC — Phase 11: Interview status via Zapier/Make webhook
+# SPEC — Phase 12: Status lifecycle polish (`/accept` + GHOSTED sweep)
 
 ## Goal
 
-Applications advance automatically when the user gets an inbound email from a
-recruiter (invite, offer, rejection). No Gmail OAuth code in Cinch — the user
-sets up a free **Zapier or Make** automation ("when Gmail matches X, POST to
-Cinch") and Cinch's webhook classifies + updates the status. Fresh state shows
-up on the Phase 10 dashboard within one HTMX poll (≤ 15s).
+Close the two obvious gaps left open after Phase 11's inbound-email webhook:
+
+1. **`/accept`** — let the user mark an `OFFERED` application as `ACCEPTED` from
+   Telegram. The status exists in the enum but nothing can reach it today.
+2. **GHOSTED sweep** — a scheduled job that flags `SUBMITTED` applications that
+   have been silent for ≥ N days (default 30) as `GHOSTED`, so a long-dead
+   application stops masquerading as "still in play" on the dashboard. If a
+   recruiter ever *does* reply, the email webhook un-ghosts it automatically.
 
 ## Non-goals
 
-- No direct Gmail API integration (deliberately deferred — Zapier is enough MVP).
-- No spam/quality-signal filtering (Zapier's own filter step does the pre-filtering).
-- No user-visible reply generation. Classification only.
-- Not multi-tenant — one shared secret per Cinch deploy.
+- No auto-accept. Accepting an offer is always an explicit human action.
+- No "un-accept" / re-open flow (ACCEPTED is terminal for this phase).
+- No configurable per-status ghost thresholds — one global threshold.
+- No new dashboard interactions beyond a badge + count for `GHOSTED`.
+- No email/calendar side effects on accept (no notifying the employer).
 
 ## Behaviour
 
-1. User configures Zapier: **Gmail trigger** (subject/from filter) →
-   **Webhooks by Zapier: POST**
-   - URL: `https://<your-cinch>/webhook/email`
-   - Header: `X-Cinch-Webhook-Secret: <same as INTERVIEW_WEBHOOK_SECRET>`
-   - JSON body: `{from_email, from_name, subject, body_text, received_at}`
-2. Cinch receives the POST, constant-time-compares the secret header.
-3. Loads the single owner user's post-submit applications as classification
-   candidates (`APPROVED`, `SUBMITTED`, `NEEDS_HUMAN`, `INTERVIEW_*`, `OFFERED`).
-4. Calls the configured LLM (Groq/Anthropic) with a strict system prompt: emit
-   ONE of six buckets + a short summary + optional `company_hint`. No prose, JSON only.
-5. Matches the LLM's `company_hint` (or a sender-domain fallback for
-   `jobs@acme.com` sends) against candidate applications with a
-   ``SequenceMatcher`` ratio ≥ 0.6 (plus substring rescue for short brands).
-6. If the bucket is `interview_invited` / `interview_scheduled` / `offer` /
-   `rejection` **AND** a match was found → advances the application's status,
-   records the LLM summary + received_at, DMs the user on Telegram.
-7. Informational buckets (`acknowledgement`, `other`) never change state, even
-   with a match — auto-replies shouldn't false-advance a real application.
-8. Always returns HTTP 200 with a small JSON summary; only auth / config errors
-   return 4xx / 5xx (so Zapier doesn't retry noisy no-ops as failures).
+### `/accept`
+1. `/accept` lists the caller's `OFFERED` applications, each as its own message
+   with a single **✅ Accept** inline button (mirrors the Approve/Skip card idiom).
+   - 0 offers → `"You have no open offers to accept."`
+   - ≥ 1 → one card per offer (job title + company + posting link).
+2. Tapping **Accept** fires an `accept:<application_id>` callback.
+3. The callback is authorized + applied by the service layer (never trusts the
+   callback): owner check against the Telegram id, and an idempotent guard that
+   only transitions from `OFFERED`. Re-tapping a stale button is a clean no-op.
+4. On success: strip the button, answer `"🎉 Offer accepted."`, and the
+   dashboard shows `accepted` on its next poll.
+
+### GHOSTED sweep
+1. A scheduler job (`run_ghosted_sweep`) runs on an interval, **off by default**,
+   gated by `ghosted_sweep_enabled` (consistent with discovery/submission).
+2. It selects applications in `SUBMITTED` whose `updated_at` is older than
+   `ghosted_after_days` (default 30) and moves them to `GHOSTED`, recording a
+   short PII-free note. `updated_at` auto-bumps (`onupdate=func.now()`) on any
+   status change or inbound-email update, so it is the correct "quiet since" clock.
+3. For each newly-ghosted application, DM the user a terminal nudge
+   (`👻 No response — <title> at <company>`).
+4. `GHOSTED` is added to the email-match candidate set, so a late recruiter reply
+   re-advances it out of `GHOSTED` (interview/offer/rejection) — ghosting is a
+   presumption, not a dead end.
 
 ## Design
 
-- **Framework-free classifier** — `services/email_classifier.py` takes the
-  ``LLMProvider`` + candidate applications and returns a
-  ``EmailClassificationResult`` proposal. The webhook route decides whether to
-  apply. Anti-fabrication analogue to the tailoring pipeline: the classifier
-  can never mutate state itself.
-- **LLM safety** — prompt forbids quoting the email body / exposing PII in the
-  summary; body is truncated to 4000 chars in the prompt so a marketing blast
-  can't blow the token budget; parsing failures degrade to a no-op, never crash.
-- **Reused ``LLMProvider``** — same provider factory as tailoring / PDF ingest.
-  Free-tier Groq is enough.
-- **New enum values, no schema change to `status` column** — it's already
-  `String(32)`. Migration 0004 adds two nullable columns (`last_email_at`,
-  `last_email_summary`) so the dashboard can show evidence.
-- **Sender-domain fallback** — when the LLM returns `null` for `company_hint`,
-  the route parses the sender domain (`jobs@acme.com` → `"acme"`), skipping
-  webmail domains (`gmail`, `yahoo`, …) where the domain says nothing.
+- **Reuse the callback router, don't fork it.** Extend
+  `bot/keyboards.py` with an `accept` action + `accept_markup(application_id)`,
+  and route `accept:` through the existing `callback_handler`. The authorization
+  + idempotency decision lives in the service layer, exactly like Approve/Skip —
+  satisfying the "authorize every callback" constraint.
+- **Service-owned transitions.** Add methods to `ApprovalService` (or a small
+  sibling) so the bot layer stays thin and the transition rules are unit-tested
+  without Telegram: `accept(telegram_user_id, application_id) -> AcceptOutcome`
+  (`ACCEPTED` / `NOT_OFFERED` / `UNAUTHORIZED` / `NOT_FOUND`).
+- **No migration.** `GHOSTED` is a new `ApplicationStatus` value; the `status`
+  column is already `String(32)`. The sweep uses existing `updated_at`. Zero
+  schema change — same posture Phase 11 took for its new statuses.
+- **DI-friendly sweep.** `run_ghosted_sweep(db, settings, bot)` takes its deps as
+  arguments (like `run_discovery_cycle`) so it can move to Celery later unchanged.
+  A `GhostedSweepService` in `services/` holds the pure logic (query + transition
+  + which apps to notify); the scheduler wires the Telegram notifier in.
+- **Notifier reuse.** Add `send_ghosted_notice` / `format_ghosted_message` next to
+  the existing email-update notifier, so `services/` never imports Telegram.
 
 ## Files
 
 ### New
-- `src/cinch/api/email_webhook.py` — `POST /webhook/email` router,
-  auth + orchestration + notify.
-- `src/cinch/services/email_classifier.py` — `EmailClassifier`,
-  `EmailPayload`, `EmailClassificationResult`, matching helpers.
-- `migrations/versions/0004_email_tracking.py` — adds `last_email_at` +
-  `last_email_summary` to `applications`.
-- `tests/test_email_classifier.py` — 13 tests (each bucket, LLM company_hint
-  match, sender-domain fallback, malformed LLM → no-op, similarity threshold).
-- `tests/test_email_webhook.py` — 8 tests (auth 401 / 503, all classification
-  bucket paths, unknown-company no-op, malformed 422, DB update assertion).
+- `src/cinch/services/lifecycle.py` — `GhostedSweepService` (pure sweep logic:
+  find stale `SUBMITTED`, transition to `GHOSTED`, return the list to notify) and
+  the `/accept` transition helper if not folded into `ApprovalService`.
+- `tests/test_accept_command.py` — `/accept` list rendering (0 / 1 / many offers),
+  the accept callback happy path, unauthorized caller, non-`OFFERED` no-op,
+  double-tap idempotency.
+- `tests/test_ghosted_sweep.py` — a `SUBMITTED` app older than the threshold is
+  ghosted; a fresh one is not; a non-`SUBMITTED` old app is untouched; the
+  service returns exactly the newly-ghosted apps to notify; disabled flag → no-op.
 
 ### Modified
-- `src/cinch/domain/enums.py` — 5 new statuses (`INTERVIEW_INVITED`,
-  `INTERVIEW_SCHEDULED`, `OFFERED`, `ACCEPTED`, `REJECTED`).
-- `src/cinch/domain/models.py` + `src/cinch/db/models.py` — new nullable columns.
-- `src/cinch/db/repositories.py` — `list_candidates_for_email_match`,
-  `record_email_update`.
-- `src/cinch/services/prompts.py` — `EMAIL_CLASSIFY_SYSTEM_PROMPT` +
-  `build_email_classify_user_prompt`.
-- `src/cinch/core/config.py` — `interview_webhook_secret` env var.
-- `src/cinch/api/app.py` — mounts the email webhook router.
-- `src/cinch/bot/{notify,messages}.py` — `send_email_status_update` +
-  `format_email_update_message`.
-- `src/cinch/services/dashboard_stats.py` — new statuses in `_STATUS_ORDER`.
-- Dashboard templates — colors + labels for the new statuses.
-- `.env.example` — documents `INTERVIEW_WEBHOOK_SECRET`.
+- `src/cinch/domain/enums.py` — add `GHOSTED = "ghosted"`.
+- `src/cinch/db/repositories.py` —
+  `list_stale_submitted(before: datetime) -> list[Application]`,
+  `mark_ghosted(application_id, *, note) -> Application | None`,
+  `accept_offer(application_id) -> Application | None` (guards on `OFFERED`),
+  and add `GHOSTED` to `list_candidates_for_email_match`'s allowed set.
+- `src/cinch/services/workflow.py` — `accept()` + `AcceptOutcome` enum
+  (owner auth + idempotent `OFFERED`-only transition).
+- `src/cinch/bot/keyboards.py` — `accept` action, `accept_markup`, parse support.
+- `src/cinch/bot/handlers.py` — `accept_command`; extend `callback_handler` to
+  route the `accept` action.
+- `src/cinch/bot/application.py` — register `CommandHandler("accept", …)`.
+- `src/cinch/bot/messages.py` — `format_offer_card`, `format_ghosted_message`,
+  accept ack text; add a `GHOSTED` headline entry.
+- `src/cinch/bot/notify.py` — `send_ghosted_notice` + `send_offer_cards` (or reuse
+  `send_message`), keeping Telegram out of `services/`.
+- `src/cinch/api/scheduler.py` — `run_ghosted_sweep` + `start_ghosted_scheduler`,
+  started from the lifespan only when `ghosted_sweep_enabled`.
+- `src/cinch/api/app.py` — start the ghosted scheduler in the lifespan (guarded).
+- `src/cinch/core/config.py` — `ghosted_sweep_enabled: bool = False`,
+  `ghosted_after_days: int = 30`, `ghosted_sweep_interval_minutes: int = 1440`.
+- `src/cinch/services/dashboard_stats.py` — add `GHOSTED` to `_STATUS_ORDER`.
+- `src/cinch/api/dashboard/templates/_applications.html` — `ghosted` badge color.
+- `.env.example` — document the three new `GHOSTED_*` settings.
 
 ## Safety properties (asserted by tests)
 
-1. Missing / wrong header secret → 401 (no LLM call, no DB touch).
-2. `INTERVIEW_WEBHOOK_SECRET` unset → 503 (no LLM call).
-3. `acknowledgement` / `other` buckets never advance status, even with a match.
-4. Company-hint mismatch (ratio < 0.6) never accidentally attaches to a random application.
-5. Malformed LLM output → no-op 200 (never crashes the request; never advances state).
-6. Repository record only touches the matched application (foreign key + user_id-scoped candidates).
+1. `/accept` callback from a non-owner Telegram id never mutates state
+   (`UNAUTHORIZED`), and does not strip the button.
+2. Accept only transitions from `OFFERED`; any other current status is a no-op
+   (`NOT_OFFERED`) — a stale/duplicate tap can't corrupt a resolved application.
+3. The sweep only touches `SUBMITTED` rows older than the threshold — never
+   `APPROVED`, `INTERVIEW_*`, `OFFERED`, or already-terminal rows.
+4. Sweep disabled (`ghosted_sweep_enabled=False`) → the scheduler is never
+   started and `run_ghosted_sweep` is a no-op returning an empty summary.
+5. A ghosted application remains an email-match candidate, so a later recruiter
+   email re-advances it (proven by an email-webhook test over a `GHOSTED` row).
+6. No Alembic migration is introduced (enum-only change on a `String` column);
+   `alembic heads` stays at `0004`.
 
 ## Verification
 
-- `ruff`, `ruff format`, `mypy --strict` all clean.
-- `uv run pytest` — **204 passed, 88% coverage**.
-- Manual smoke (post-deploy): forward a real interview / rejection email through
-  Zapier → dashboard status updates within one poll; Telegram DM arrives.
+- `ruff`, `ruff format --check`, `mypy --strict` all clean.
+- `uv run pytest` — **219 passed, 87% coverage**.
+- `alembic heads` stays at `0004` (no migration introduced).
+- Manual smoke (post-deploy):
+  - Drive an application to `OFFERED` (via the email webhook), run `/accept`,
+    tap Accept → dashboard shows `accepted`.
+  - Temporarily set `GHOSTED_AFTER_DAYS=0` + `GHOSTED_SWEEP_ENABLED=true` against
+    a throwaway `SUBMITTED` app → it flips to `GHOSTED` and a DM arrives; then a
+    forwarded interview email un-ghosts it.
 
 ## Out of scope (candidates for the next MVP-plus)
 
 - Per-user secrets for a multi-tenant deploy.
-- ACCEPTED-from-OFFERED transition (needs a bot command like `/accept <app>`).
-- GHOSTED sweep — flag SUBMITTED apps quiet for > 30 days.
-- Native Gmail OAuth (avoids the Zapier hop; ~1 day extra plumbing).
-- Sanity-filter to reject job-alert / newsletter / DocuSign emails before the LLM call.
+- Native Gmail OAuth (drop the Zapier hop).
+- Email sanity-filter (reject newsletters/job-alerts before the LLM call).
+- A `/status <app>` command to show one application's full history.
+- Configurable ghost thresholds per source or per status.
