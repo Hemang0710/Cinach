@@ -37,6 +37,7 @@ dependencies = [
     "cryptography>=43",
     "fpdf2>=2.7",  # pure-Python PDF generation for tailored resume delivery (Phase 9)
     "pypdf>=5.0",  # pure-Python PDF text extraction for /uploadpdf (Phase 8)
+    "jinja2>=3.1",  # HTML templates for the dashboard (Phase 10)
 ]
 
 [project.optional-dependencies]
@@ -64,6 +65,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cinch"]
+
+# Ship non-Python assets bundled with the package (dashboard Jinja2 templates).
+[tool.hatch.build.targets.wheel.force-include]
+"src/cinch/api/dashboard/templates" = "cinch/api/dashboard/templates"
 
 # ---------------------------------------------------------------------------
 # uv

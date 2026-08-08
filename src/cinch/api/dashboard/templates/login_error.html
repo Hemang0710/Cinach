@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Cinch — link expired{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto mt-24 text-center">
+  <h1 class="text-2xl font-semibold mb-3">Link {{ reason }}</h1>
+  <p class="text-slate-400 mb-6">Magic-links are single-use and expire in ~10 minutes.</p>
+  <p class="text-slate-300">Open Telegram and send <code class="bg-slate-800 px-2 py-1 rounded">/dashboard</code> to your Cinch bot for a fresh link.</p>
+</div>
+{% endblock %}

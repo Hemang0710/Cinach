@@ -116,6 +116,8 @@ def create_app(
     # Injected dependencies are visible immediately (tests don't run the lifespan).
     app.state.db = db
     app.state.bot_app = bot_app
+    # Dashboard router (and any future consumer) reads settings off app.state.
+    app.state.settings = settings
 
     @app.middleware("http")
     async def request_id_middleware(
@@ -152,5 +154,11 @@ def create_app(
 
     if bot_app is not None or settings.telegram_bot_token:
         register_webhook(app, settings=settings)
+
+    # Dashboard mounts unconditionally — /login itself checks the webhook secret,
+    # and having the routes always registered makes CI/tests deterministic.
+    from cinch.api.dashboard.router import build_dashboard_router
+
+    app.include_router(build_dashboard_router())
 
     return app

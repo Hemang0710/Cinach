@@ -1,0 +1,32 @@
+{# Summary tiles — one per lifecycle status, plus a total. Included in the
+   main page and re-rendered by HTMX polling. `stats` is a DashboardStats. #}
+{% set color = {
+  "discovered": "bg-slate-800 border-slate-700",
+  "pending_approval": "bg-amber-950 border-amber-800 text-amber-100",
+  "approved": "bg-sky-950 border-sky-800 text-sky-100",
+  "submitted": "bg-emerald-950 border-emerald-800 text-emerald-100",
+  "needs_human": "bg-orange-950 border-orange-800 text-orange-100",
+  "skipped": "bg-slate-900 border-slate-800 text-slate-400",
+  "failed": "bg-rose-950 border-rose-800 text-rose-100",
+} %}
+{% set label = {
+  "discovered": "Discovered",
+  "pending_approval": "Awaiting you",
+  "approved": "Approved",
+  "submitted": "Submitted",
+  "needs_human": "Needs you",
+  "skipped": "Skipped",
+  "failed": "Failed",
+} %}
+<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+  <div class="rounded-lg border border-slate-700 bg-slate-900 p-3">
+    <div class="text-2xl font-bold">{{ stats.total }}</div>
+    <div class="text-xs uppercase tracking-wide text-slate-400">Total</div>
+  </div>
+  {% for status, count in stats.by_status %}
+  <div class="rounded-lg border p-3 {{ color[status.value] }}">
+    <div class="text-2xl font-bold">{{ count }}</div>
+    <div class="text-xs uppercase tracking-wide opacity-80">{{ label[status.value] }}</div>
+  </div>
+  {% endfor %}
+</div>

@@ -21,7 +21,9 @@ produce better applications than spraying hundreds of generic ones.
 - **Human-in-the-loop by design** — no unattended bulk auto-apply. You approve
   every application from your phone. Each Approve/Skip card comes with the
   **tailored résumé as a `.pdf` attachment** so you can preview exactly what
-  would be submitted.
+  would be submitted. A **live web dashboard** shows every application, its
+  status, and per-status counts — signed magic-link DM'd by the bot's
+  `/dashboard` command.
 - **Never fabricates** — tailoring is keyword alignment, reordering, and
   emphasis of your *real* experience. A validation step flags any bullet not
   grounded in your master resume, and ungrounded rewrites are excluded from

@@ -1,0 +1,55 @@
+{# Applications table — the 30 most-recent rows for this user. `stats.rows` is
+   a list of DashboardRow. Re-rendered by HTMX polling. #}
+{% set status_badge = {
+  "discovered": "bg-slate-700 text-slate-200",
+  "pending_approval": "bg-amber-900 text-amber-100",
+  "approved": "bg-sky-900 text-sky-100",
+  "submitted": "bg-emerald-900 text-emerald-100",
+  "needs_human": "bg-orange-900 text-orange-100",
+  "skipped": "bg-slate-800 text-slate-400",
+  "failed": "bg-rose-900 text-rose-100",
+} %}
+{% set source_badge = {
+  "adzuna": "bg-purple-900 text-purple-100",
+  "remoteok": "bg-teal-900 text-teal-100",
+  "arbeitnow": "bg-indigo-900 text-indigo-100",
+} %}
+{% if not stats.rows %}
+<div class="rounded-lg border border-slate-800 bg-slate-900 p-8 text-center text-slate-400">
+  No applications yet. Upload your résumé in Telegram, then run <code class="text-slate-300">/discover</code>.
+</div>
+{% else %}
+<div class="overflow-x-auto rounded-lg border border-slate-800">
+  <table class="min-w-full text-sm">
+    <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
+      <tr>
+        <th class="text-left px-4 py-2">Role</th>
+        <th class="text-left px-4 py-2">Company</th>
+        <th class="text-left px-4 py-2">Source</th>
+        <th class="text-left px-4 py-2">Status</th>
+        <th class="text-left px-4 py-2">Added</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-800">
+    {% for row in stats.rows %}
+      <tr class="hover:bg-slate-900/50">
+        <td class="px-4 py-2">
+          <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer"
+             class="text-sky-400 hover:text-sky-300 hover:underline">{{ row.job_title }}</a>
+          {% if row.location %}<div class="text-xs text-slate-500">{{ row.location }}</div>{% endif %}
+        </td>
+        <td class="px-4 py-2 text-slate-200">{{ row.company }}</td>
+        <td class="px-4 py-2">
+          <span class="inline-block rounded px-2 py-0.5 text-xs {{ source_badge.get(row.source.value, 'bg-slate-800 text-slate-300') }}">{{ row.source.value }}</span>
+        </td>
+        <td class="px-4 py-2">
+          <span class="inline-block rounded px-2 py-0.5 text-xs {{ status_badge[row.status.value] }}">{{ row.status.value|replace('_', ' ') }}</span>
+          {% if row.submission_detail %}<div class="text-xs text-slate-500 mt-1">{{ row.submission_detail }}</div>{% endif %}
+        </td>
+        <td class="px-4 py-2 text-slate-400 whitespace-nowrap">{{ row.created_at.strftime('%b %d, %H:%M') }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}

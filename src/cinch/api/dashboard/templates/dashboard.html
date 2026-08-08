@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Cinch dashboard{% endblock %}
+{% block content %}
+<header class="flex items-baseline justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Cinch dashboard</h1>
+    <p class="text-slate-400 text-sm">Auto-refreshes every 15s.</p>
+  </div>
+  <a href="/dashboard/logout" class="text-sm text-slate-400 hover:text-slate-200">Log out</a>
+</header>
+
+<section
+  hx-get="/dashboard/fragments/summary"
+  hx-trigger="load, every 15s"
+  hx-swap="innerHTML"
+  class="mb-8"
+>
+  {% include "_summary.html" %}
+</section>
+
+<section>
+  <h2 class="text-lg font-medium mb-3">Recent applications</h2>
+  <div
+    hx-get="/dashboard/fragments/applications"
+    hx-trigger="load, every 15s"
+    hx-swap="innerHTML"
+  >
+    {% include "_applications.html" %}
+  </div>
+</section>
+{% endblock %}
