@@ -33,6 +33,7 @@
         <th class="text-left px-4 py-2">Company</th>
         <th class="text-left px-4 py-2">Source</th>
         <th class="text-left px-4 py-2">Status</th>
+        <th class="text-left px-4 py-2">Latest update</th>
         <th class="text-left px-4 py-2">Added</th>
       </tr>
     </thead>
@@ -51,6 +52,14 @@
         <td class="px-4 py-2">
           <span class="inline-block rounded px-2 py-0.5 text-xs {{ status_badge[row.status.value] }}">{{ row.status.value|replace('_', ' ') }}</span>
           {% if row.submission_detail %}<div class="text-xs text-slate-500 mt-1">{{ row.submission_detail }}</div>{% endif %}
+        </td>
+        <td class="px-4 py-2">
+          {% if row.last_email_summary %}
+            <div class="text-slate-300 max-w-xs">{{ row.last_email_summary }}</div>
+            {% if row.last_email_at %}<div class="text-xs text-slate-500 mt-0.5">{{ row.last_email_at.strftime('%b %d, %H:%M') }}</div>{% endif %}
+          {% else %}
+            <span class="text-slate-600">—</span>
+          {% endif %}
         </td>
         <td class="px-4 py-2 text-slate-400 whitespace-nowrap">{{ row.created_at.strftime('%b %d, %H:%M') }}</td>
       </tr>

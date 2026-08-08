@@ -51,6 +51,10 @@ class DashboardRow:
     created_at: datetime
     submitted_at: datetime | None
     submission_detail: str | None
+    # Inbound-email evidence (Phase 11) surfaced so an interview/offer/rejection
+    # shows *why* it advanced and when — the core of offer tracking.
+    last_email_at: datetime | None
+    last_email_summary: str | None
 
 
 @dataclass(frozen=True)
@@ -79,20 +83,26 @@ async def compute_dashboard_stats(
     result = await session.execute(query)
     pairs = list(result.tuples().all())
 
-    counts: Counter[ApplicationStatus] = Counter(app.status for app, _ in pairs)
+    # The status/source columns are ``String`` (not SQLAlchemy ``Enum``), so the ORM
+    # hands back plain ``str`` — coerce to the enum here so ``DashboardRow`` really
+    # holds what its annotations promise and the template's ``.value`` resolves
+    # (otherwise the status/source badges render blank).
+    counts: Counter[ApplicationStatus] = Counter(ApplicationStatus(app.status) for app, _ in pairs)
     by_status = [(status, counts.get(status, 0)) for status in _STATUS_ORDER]
     rows = [
         DashboardRow(
             application_id=app.id,
-            status=app.status,
+            status=ApplicationStatus(app.status),
             job_title=job.title,
             company=job.company,
             location=job.location,
             url=job.url,
-            source=job.source,
+            source=JobSourceName(job.source),
             created_at=app.created_at,
             submitted_at=app.submitted_at,
             submission_detail=app.submission_detail,
+            last_email_at=app.last_email_at,
+            last_email_summary=app.last_email_summary,
         )
         for app, job in pairs[:row_limit]
     ]
