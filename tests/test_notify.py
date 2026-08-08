@@ -8,8 +8,8 @@ from uuid import uuid4
 
 from telegram import Bot
 
-from cinch.bot.notify import TelegramNotifier, send_application
-from cinch.domain.enums import JobSourceName
+from cinch.bot.notify import TelegramNotifier, send_application, send_email_status_update
+from cinch.domain.enums import ApplicationStatus, JobSourceName
 from cinch.domain.models import Job, TailoringResult
 
 
@@ -80,3 +80,21 @@ async def test_telegram_notifier_forwards_pdf_kwarg() -> None:
         resume_pdf=b"%PDF-1.7 tiny",
     )
     bot.send_document.assert_awaited_once()
+
+
+async def test_send_email_status_update_sends_html_message() -> None:
+    """Phase 11: bot DMs the user when an inbound email advances an application."""
+    bot = _fake_bot()
+    await send_email_status_update(
+        bot,
+        chat_id=99,
+        job=_fake_job(),
+        status=ApplicationStatus.INTERVIEW_INVITED,
+        summary="Phone screen scheduled next Tuesday.",
+    )
+    bot.send_message.assert_awaited_once()
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "Interview invited" in text
+    assert "Backend Engineer" in text
+    assert "Acme" in text
+    assert "Phone screen scheduled" in text

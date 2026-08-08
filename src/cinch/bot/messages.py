@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from html import escape
 
+from cinch.domain.enums import ApplicationStatus
 from cinch.domain.models import Job, TailoringResult
 from cinch.providers.submit.base import SubmissionOutcome
 
@@ -54,3 +55,21 @@ def format_submission_message(job: Job, outcome: SubmissionOutcome, detail: str)
         f"⚠️ <b>Couldn't apply</b> — {title} at {company} ({escape(detail)}).\n"
         f"You can still apply directly:\n{link}"
     )
+
+
+_STATUS_HEADLINE: dict[ApplicationStatus, str] = {
+    ApplicationStatus.INTERVIEW_INVITED: "🎯 <b>Interview invited</b>",
+    ApplicationStatus.INTERVIEW_SCHEDULED: "📅 <b>Interview scheduled</b>",
+    ApplicationStatus.OFFERED: "🎉 <b>Offer</b>",
+    ApplicationStatus.REJECTED: "🚫 <b>Rejection</b>",
+}
+
+
+def format_email_update_message(job: Job, status: ApplicationStatus, summary: str) -> str:
+    """Render a Telegram notification for a status change driven by an inbound email."""
+    headline = _STATUS_HEADLINE.get(status, f"<b>Status: {escape(status.value)}</b>")
+    title, company = escape(job.title), escape(job.company)
+    lines = [f"{headline} — {title} at {company}."]
+    if summary:
+        lines.append(escape(summary))
+    return "\n".join(lines)

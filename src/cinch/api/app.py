@@ -158,7 +158,11 @@ def create_app(
     # Dashboard mounts unconditionally — /login itself checks the webhook secret,
     # and having the routes always registered makes CI/tests deterministic.
     from cinch.api.dashboard.router import build_dashboard_router
+    from cinch.api.email_webhook import build_email_webhook_router
 
     app.include_router(build_dashboard_router())
+    # Email webhook likewise mounts always; the route itself checks the shared
+    # secret and 503s if unset. Zapier/Make callers get a clean error.
+    app.include_router(build_email_webhook_router())
 
     return app

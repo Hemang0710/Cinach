@@ -27,6 +27,13 @@ class ApplicationStatus(StrEnum):
     SUBMITTED = "submitted"
     NEEDS_HUMAN = "needs_human"  # auto-submit unsafe/unsupported — user finishes manually
     FAILED = "failed"
+    # Phase 11 — post-submit lifecycle driven by classified inbound emails
+    # (Zapier/Make webhook → LLM classifier → status update).
+    INTERVIEW_INVITED = "interview_invited"  # recruiter reached out; scheduling pending
+    INTERVIEW_SCHEDULED = "interview_scheduled"  # concrete date/time confirmed
+    OFFERED = "offered"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 
 class JobSourceName(StrEnum):

@@ -23,7 +23,9 @@ produce better applications than spraying hundreds of generic ones.
   **tailored résumé as a `.pdf` attachment** so you can preview exactly what
   would be submitted. A **live web dashboard** shows every application, its
   status, and per-status counts — signed magic-link DM'd by the bot's
-  `/dashboard` command.
+  `/dashboard` command. **Interview / offer / rejection emails advance status
+  automatically** via a free Zapier or Make webhook (LLM-classified, matched to
+  the right application by company hint + sender domain).
 - **Never fabricates** — tailoring is keyword alignment, reordering, and
   emphasis of your *real* experience. A validation step flags any bullet not
   grounded in your master resume, and ungrounded rewrites are excluded from
