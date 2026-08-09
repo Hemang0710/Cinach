@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from telegram import BotCommand
 from telegram.ext import (
     AIORateLimiter,
     Application,
@@ -36,16 +37,35 @@ from cinch.db.session import Database
 # PTB's Application is generic over six type params; we don't specialize them here.
 BotApp = Application[Any, Any, Any, Any, Any, Any]
 
+# The "/" command menu Telegram shows in the chat. Keep in sync with the
+# CommandHandlers registered below — one entry per user-facing command.
+_COMMAND_MENU: list[BotCommand] = [
+    BotCommand("start", "Register and see how Cinch works"),
+    BotCommand("setresume", "Upload or set your master resume"),
+    BotCommand("discover", "Find matching jobs right now"),
+    BotCommand("dashboard", "Open your web dashboard"),
+    BotCommand("accept", "Accept an open offer"),
+    BotCommand("emailhook", "Get your inbound-email webhook token"),
+]
+
 
 def build_bot_application(settings: Settings, db: Database) -> BotApp:
     """Build a configured PTB ``Application`` (handlers + rate limiter + injected db)."""
     if not settings.telegram_bot_token:
         raise ValueError("telegram_bot_token is required to build the bot application")
 
+    async def _publish_command_menu(app: BotApp) -> None:
+        """Register the "/" autocomplete menu with Telegram (runs on initialize())."""
+        menu = list(_COMMAND_MENU)
+        if not settings.is_production:
+            menu.append(BotCommand("demo", "Send a sample application (dev only)"))
+        await app.bot.set_my_commands(menu)
+
     app: BotApp = (
         Application.builder()
         .token(settings.telegram_bot_token)
         .rate_limiter(AIORateLimiter())
+        .post_init(_publish_command_menu)
         .build()
     )
     app.bot_data["db"] = db
