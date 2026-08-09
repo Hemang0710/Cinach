@@ -31,6 +31,7 @@ from cinch.domain.enums import ApplicationStatus
 from cinch.domain.models import Application
 from cinch.providers.llm.base import LLMError, LLMProvider
 from cinch.services import prompts
+from cinch.services.email_filter import is_noise_email
 
 logger = get_logger(__name__)
 
@@ -165,6 +166,16 @@ class EmailClassifier:
         avoid a repository callback here (keeps the service framework-free).
         """
         received_at = payload.received_at or datetime.now(tz=UTC)
+
+        # Pre-LLM sanity gate (Phase 13): drop obvious noise (job-alert digests,
+        # newsletters) before spending an LLM call. Conservative by design — only
+        # categories that can never advance an application are filtered here.
+        if self._settings.email_sanity_filter_enabled:
+            rule = is_noise_email(payload)
+            if rule is not None:
+                logger.info("email_filtered", rule=rule)
+                return _drop(received_at, f"filtered: {rule}")
+
         raw = await self._call_llm(payload)
         parsed = self._parse(raw)
         if parsed is None:

@@ -1,112 +1,128 @@
-# SPEC — Phase 11: Interview status via Zapier/Make webhook
+# SPEC — Phase 13: Email sanity-filter (pre-LLM noise gate)
 
 ## Goal
 
-Applications advance automatically when the user gets an inbound email from a
-recruiter (invite, offer, rejection). No Gmail OAuth code in Cinch — the user
-sets up a free **Zapier or Make** automation ("when Gmail matches X, POST to
-Cinch") and Cinch's webhook classifies + updates the status. Fresh state shows
-up on the Phase 10 dashboard within one HTMX poll (≤ 15s).
+Stop obvious inbox noise — job-alert digests and marketing newsletters — from
+reaching the Phase 11 LLM classifier. A cheap, deterministic pre-check runs
+*before* `EmailClassifier` calls the LLM: if the email is clearly noise, the
+webhook returns a no-op 200 without spending an LLM call, and there is zero
+chance it false-advances an application.
+
+## Why
+
+Every inbound email currently triggers an LLM call (cost + latency), and a noisy
+inbox (LinkedIn/Indeed job alerts, newsletters) is the common case. The filter
+cuts that spend and removes a whole class of false-positive risk before it can
+happen.
 
 ## Non-goals
 
-- No direct Gmail API integration (deliberately deferred — Zapier is enough MVP).
-- No spam/quality-signal filtering (Zapier's own filter step does the pre-filtering).
-- No user-visible reply generation. Classification only.
-- Not multi-tenant — one shared secret per Cinch deploy.
+- **Not** a replacement for the LLM classifier — it only removes emails that can
+  *never* legitimately advance an application. Anything ambiguous falls through
+  to the LLM unchanged (current behaviour).
+- **No** DocuSign / e-signature filtering. Offer letters routinely travel via
+  DocuSign, so dropping those risks missing a real offer — deliberately excluded
+  (a considered deviation from the Phase-11 out-of-scope note, which lumped
+  DocuSign in; see "Design decisions").
+- No header-based filtering (`List-Unsubscribe`, SPF/DKIM) — Zapier only forwards
+  `from/subject/body`, not raw headers.
+- No per-user allow/deny lists, no learning/scoring model.
 
 ## Behaviour
 
-1. User configures Zapier: **Gmail trigger** (subject/from filter) →
-   **Webhooks by Zapier: POST**
-   - URL: `https://<your-cinch>/webhook/email`
-   - Header: `X-Cinch-Webhook-Secret: <same as INTERVIEW_WEBHOOK_SECRET>`
-   - JSON body: `{from_email, from_name, subject, body_text, received_at}`
-2. Cinch receives the POST, constant-time-compares the secret header.
-3. Loads the single owner user's post-submit applications as classification
-   candidates (`APPROVED`, `SUBMITTED`, `NEEDS_HUMAN`, `INTERVIEW_*`, `OFFERED`).
-4. Calls the configured LLM (Groq/Anthropic) with a strict system prompt: emit
-   ONE of six buckets + a short summary + optional `company_hint`. No prose, JSON only.
-5. Matches the LLM's `company_hint` (or a sender-domain fallback for
-   `jobs@acme.com` sends) against candidate applications with a
-   ``SequenceMatcher`` ratio ≥ 0.6 (plus substring rescue for short brands).
-6. If the bucket is `interview_invited` / `interview_scheduled` / `offer` /
-   `rejection` **AND** a match was found → advances the application's status,
-   records the LLM summary + received_at, DMs the user on Telegram.
-7. Informational buckets (`acknowledgement`, `other`) never change state, even
-   with a match — auto-replies shouldn't false-advance a real application.
-8. Always returns HTTP 200 with a small JSON summary; only auth / config errors
-   return 4xx / 5xx (so Zapier doesn't retry noisy no-ops as failures).
+1. `EmailClassifier.classify` runs the sanity check first (when
+   `email_sanity_filter_enabled`, default **on**).
+2. If the email matches a noise rule, classify returns a no-op result
+   (`classification=other`, `new_status=None`, `matched_application=None`) with
+   `reason="filtered: <rule>"` — **no LLM call is made**.
+3. The webhook already treats that as `no_status_change` and returns 200, so
+   Zapier sees `{"action":"no_status_change","classification":"other",
+   "reason":"filtered: job_alert"}` and does not retry.
+4. If no rule matches, behaviour is exactly as today — the LLM classifies.
+
+## Noise rules (high-precision only)
+
+The filter is conservative by design: a false negative (noise slips through) just
+means one wasted LLM call; a false positive (a real interview/offer dropped) is a
+silent miss. So rules fire only on strong signals for categories that never
+advance an application:
+
+- **`job_alert`** — subject or body matches job-board digest patterns, e.g.
+  `job alert`, `jobs for you`, `new jobs matching`, `recommended jobs`,
+  `N new jobs`, `we found … jobs`, `job recommendations`, `your job alert`.
+- **`newsletter`** — bulk-marketing footer signature: an `unsubscribe` token
+  **combined with** one of `manage (your )?preferences` / `view (this )?in (your )?browser`
+  / `you (are )?receiv(ed|ing) this (email )?because`. (Either alone is too weak
+  — legitimate mail sometimes carries a lone "unsubscribe".)
+- **`bulk_sender`** — sender local-part is an unambiguous automated-broadcast
+  mailbox **and** the subject is not interview/offer/rejection-ish:
+  `newsletter@`, `digest@`, `marketing@`, `promotions@`, `mailer@`, `bounce(s)@`.
+  (Note: bare `no-reply@` is **not** on this list — real Lever/Greenhouse
+  interview invites use it. The subject guard also protects this rule.)
+
+All matching is on lowercased text; a small module-level list of compiled regexes
+keeps it readable and fast.
 
 ## Design
 
-- **Framework-free classifier** — `services/email_classifier.py` takes the
-  ``LLMProvider`` + candidate applications and returns a
-  ``EmailClassificationResult`` proposal. The webhook route decides whether to
-  apply. Anti-fabrication analogue to the tailoring pipeline: the classifier
-  can never mutate state itself.
-- **LLM safety** — prompt forbids quoting the email body / exposing PII in the
-  summary; body is truncated to 4000 chars in the prompt so a marketing blast
-  can't blow the token budget; parsing failures degrade to a no-op, never crash.
-- **Reused ``LLMProvider``** — same provider factory as tailoring / PDF ingest.
-  Free-tier Groq is enough.
-- **New enum values, no schema change to `status` column** — it's already
-  `String(32)`. Migration 0004 adds two nullable columns (`last_email_at`,
-  `last_email_summary`) so the dashboard can show evidence.
-- **Sender-domain fallback** — when the LLM returns `null` for `company_hint`,
-  the route parses the sender domain (`jobs@acme.com` → `"acme"`), skipping
-  webmail domains (`gmail`, `yahoo`, …) where the domain says nothing.
+- **Pure, framework-free module** — `services/email_filter.py` exposes
+  `is_noise_email(payload: EmailPayload) -> str | None` (the rule name that
+  fired, or `None`). No I/O, trivially unit-testable, mirrors the
+  `email_classifier` style.
+- **Single hook** — `EmailClassifier.classify` calls it once at the top, gated on
+  `settings.email_sanity_filter_enabled`, and returns the existing `_drop(...)`
+  no-op on a hit. No new result shape, no webhook change.
+- **Subject guard shared** — a `_looks_advancing(subject)` helper (interview /
+  offer / reject / schedule keywords) protects the `bulk_sender` rule so an
+  offer from `mailer@` still reaches the LLM.
+- **Config toggle** — `email_sanity_filter_enabled: bool = True`. On by default
+  because the rules are safe; the flag exists so it can be disabled instantly if
+  a real email is ever mis-dropped.
 
 ## Files
 
 ### New
-- `src/cinch/api/email_webhook.py` — `POST /webhook/email` router,
-  auth + orchestration + notify.
-- `src/cinch/services/email_classifier.py` — `EmailClassifier`,
-  `EmailPayload`, `EmailClassificationResult`, matching helpers.
-- `migrations/versions/0004_email_tracking.py` — adds `last_email_at` +
-  `last_email_summary` to `applications`.
-- `tests/test_email_classifier.py` — 13 tests (each bucket, LLM company_hint
-  match, sender-domain fallback, malformed LLM → no-op, similarity threshold).
-- `tests/test_email_webhook.py` — 8 tests (auth 401 / 503, all classification
-  bucket paths, unknown-company no-op, malformed 422, DB update assertion).
+- `src/cinch/services/email_filter.py` — `is_noise_email`, the rule regexes,
+  `_looks_advancing`.
+- `tests/test_email_filter.py` — each rule fires on representative noise; real
+  interview/offer/rejection/acknowledgement emails pass through; the subject
+  guard rescues an offer from a bulk mailbox; lone "unsubscribe" is not filtered.
 
 ### Modified
-- `src/cinch/domain/enums.py` — 5 new statuses (`INTERVIEW_INVITED`,
-  `INTERVIEW_SCHEDULED`, `OFFERED`, `ACCEPTED`, `REJECTED`).
-- `src/cinch/domain/models.py` + `src/cinch/db/models.py` — new nullable columns.
-- `src/cinch/db/repositories.py` — `list_candidates_for_email_match`,
-  `record_email_update`.
-- `src/cinch/services/prompts.py` — `EMAIL_CLASSIFY_SYSTEM_PROMPT` +
-  `build_email_classify_user_prompt`.
-- `src/cinch/core/config.py` — `interview_webhook_secret` env var.
-- `src/cinch/api/app.py` — mounts the email webhook router.
-- `src/cinch/bot/{notify,messages}.py` — `send_email_status_update` +
-  `format_email_update_message`.
-- `src/cinch/services/dashboard_stats.py` — new statuses in `_STATUS_ORDER`.
-- Dashboard templates — colors + labels for the new statuses.
-- `.env.example` — documents `INTERVIEW_WEBHOOK_SECRET`.
+- `src/cinch/services/email_classifier.py` — call the filter first in
+  `classify`; short-circuit to `_drop(received_at, f"filtered: {rule}")`.
+- `src/cinch/core/config.py` — `email_sanity_filter_enabled: bool = True`.
+- `.env.example` — document the toggle in the email-webhook section.
+- `tests/test_email_classifier.py` — assert a filtered email makes **no** LLM
+  call (fake provider records zero calls) and returns the filtered no-op; assert
+  a real interview email still calls the LLM and advances (guards against the
+  filter over-reaching).
 
 ## Safety properties (asserted by tests)
 
-1. Missing / wrong header secret → 401 (no LLM call, no DB touch).
-2. `INTERVIEW_WEBHOOK_SECRET` unset → 503 (no LLM call).
-3. `acknowledgement` / `other` buckets never advance status, even with a match.
-4. Company-hint mismatch (ratio < 0.6) never accidentally attaches to a random application.
-5. Malformed LLM output → no-op 200 (never crashes the request; never advances state).
-6. Repository record only touches the matched application (foreign key + user_id-scoped candidates).
+1. A job-alert / newsletter email is dropped with `reason="filtered: …"` and the
+   fake LLM provider records **zero** calls.
+2. A genuine interview / offer / rejection email is **not** filtered — the LLM is
+   called and the application advances exactly as in Phase 11.
+3. An offer sent from a bulk mailbox (`mailer@`) whose subject says "offer" is
+   **not** filtered (subject guard).
+4. A lone `unsubscribe` in an otherwise normal email does **not** trigger the
+   newsletter rule.
+5. `email_sanity_filter_enabled=False` disables the gate entirely — every email
+   reaches the LLM (back to Phase 11 behaviour).
 
 ## Verification
 
-- `ruff`, `ruff format`, `mypy --strict` all clean.
-- `uv run pytest` — **204 passed, 88% coverage**.
-- Manual smoke (post-deploy): forward a real interview / rejection email through
-  Zapier → dashboard status updates within one poll; Telegram DM arrives.
+- `ruff`, `ruff format --check`, `mypy --strict` all clean.
+- `uv run pytest` — all green, coverage ≥ 80%.
+- No migration (no schema change).
+- Manual smoke: forward a LinkedIn "jobs for you" digest through Zapier → webhook
+  returns `no_status_change` with `reason="filtered: job_alert"` and the deploy's
+  LLM usage does not tick up.
 
 ## Out of scope (candidates for the next MVP-plus)
 
+- Native Gmail OAuth (drop the Zapier hop).
 - Per-user secrets for a multi-tenant deploy.
-- ACCEPTED-from-OFFERED transition (needs a bot command like `/accept <app>`).
-- GHOSTED sweep — flag SUBMITTED apps quiet for > 30 days.
-- Native Gmail OAuth (avoids the Zapier hop; ~1 day extra plumbing).
-- Sanity-filter to reject job-alert / newsletter / DocuSign emails before the LLM call.
+- `/status <app>` history command / dashboard drill-down.
+- Header-based filtering once a source forwards raw headers.

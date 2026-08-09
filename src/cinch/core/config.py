@@ -114,6 +114,11 @@ class Settings(BaseSettings):
     # and the LLM classifier is never invoked. Distinct from the Telegram
     # webhook secret so the two rotate independently.
     interview_webhook_secret: str | None = None
+    # Deterministic pre-LLM noise gate (Phase 13): drops job-alert digests and
+    # marketing newsletters before the classifier runs — saving an LLM call and
+    # removing false-advance risk. ON by default (the rules are high-precision);
+    # set False to send every email to the LLM (Phase 11 behaviour).
+    email_sanity_filter_enabled: bool = True
 
     # --- Security ----------------------------------------------------------
     # Fernet key for encrypting resume PII at rest. Generate with
