@@ -193,3 +193,50 @@ async def test_all_action_classifications_map_correctly(
         jobs_by_id={str(acme_app.job_id): "Acme Corp"},
     )
     assert result.new_status is expected_status
+
+
+# --- Phase 13: pre-LLM sanity filter -----------------------------------------
+
+
+async def test_noise_email_is_filtered_without_an_llm_call() -> None:
+    """A job-alert digest is dropped before the LLM — provider records zero calls."""
+    provider = FakeLLMProvider([])  # no scripted responses: any call would raise
+    classifier = EmailClassifier(provider, Settings(_env_file=None))
+    result = await classifier.classify(
+        _payload(subject="Jobs for you this week", body_text="New jobs matching your search."),
+        candidates=[],
+        jobs_by_id={},
+    )
+    assert provider.calls == []  # the LLM was never invoked
+    assert result.new_status is None
+    assert result.matched_application is None
+    assert result.reason == "filtered: job_alert"
+
+
+async def test_real_interview_email_is_not_filtered() -> None:
+    """A genuine interview email still reaches the LLM and advances (filter on)."""
+    acme_app = _app("Acme Corp", ApplicationStatus.SUBMITTED)
+    provider = FakeLLMProvider(
+        ['{"classification": "interview_invited", "company_hint": "Acme", "summary": "Screen."}']
+    )
+    classifier = EmailClassifier(provider, Settings(_env_file=None))
+    result = await classifier.classify(
+        _payload(subject="Interview invitation for the Backend role"),
+        candidates=[acme_app],
+        jobs_by_id={str(acme_app.job_id): "Acme Corp"},
+    )
+    assert len(provider.calls) == 1  # the LLM WAS invoked
+    assert result.new_status is ApplicationStatus.INTERVIEW_INVITED
+
+
+async def test_filter_disabled_sends_noise_to_the_llm() -> None:
+    """With the gate off, even a job-alert reaches the LLM (Phase 11 behaviour)."""
+    provider = FakeLLMProvider(
+        ['{"classification": "other", "company_hint": null, "summary": "n/a"}']
+    )
+    settings = Settings(_env_file=None, email_sanity_filter_enabled=False)
+    classifier = EmailClassifier(provider, settings)
+    await classifier.classify(
+        _payload(subject="Jobs for you this week"), candidates=[], jobs_by_id={}
+    )
+    assert len(provider.calls) == 1  # gate disabled → LLM invoked despite the noise
