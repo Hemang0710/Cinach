@@ -8,6 +8,8 @@ from cinch.domain.models import TailoredBullet, TailoringResult
 from cinch.domain.resume import EducationEntry, ExperienceEntry, MasterResume
 from cinch.services.resume_pdf import (
     _latin1,
+    _paragraph,
+    _ResumePDF,
     _tailored_lookup,
     render_master_resume_pdf,
 )
@@ -51,6 +53,17 @@ def test_renders_valid_pdf_bytes() -> None:
     # A résumé this size (name + summary + 3 skills + 3 bullets + 1 degree) should
     # produce meaningfully more than an empty page.
     assert len(pdf) > 1500
+
+
+def test_multi_cell_resets_cursor_to_left_margin() -> None:
+    """Regression: bare multi_cell left the cursor at the line's right edge, so the
+    next bullet/paragraph rendered off-page (truncated, misplaced). The cursor must
+    return to the left margin — the smallest invariant that fails on that bug."""
+    pdf = _ResumePDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "", 10)
+    _paragraph(pdf, "A line of resume text long enough to occupy most of the usable width.")
+    assert pdf.get_x() == pdf.l_margin  # buggy code leaves x at the right edge (~198mm)
 
 
 def test_render_handles_empty_master() -> None:
