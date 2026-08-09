@@ -8,7 +8,7 @@ and hard-fails any bullet that:
 3. introduces a proper noun (employer/title/technology) not in the master.
 
 This runs offline with no LLM, so it is fully unit-testable and is the enforced
-gate. An optional LLM ``GroundingJudge`` may add a semantic second layer later.
+gate.
 """
 
 from __future__ import annotations

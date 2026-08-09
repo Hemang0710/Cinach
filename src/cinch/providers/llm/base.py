@@ -26,16 +26,3 @@ class LLMProvider(Protocol):
         raise :class:`LLMError` on failure.
         """
         ...
-
-
-@runtime_checkable
-class GroundingJudge(Protocol):
-    """Optional second-layer semantic grounding check (off by default).
-
-    The deterministic validator is always the hard gate; a judge only adds
-    semantic coverage the rules can't express. Implemented in a later iteration.
-    """
-
-    async def is_grounded(self, *, tailored: str, source: str, corpus: str) -> bool:
-        """Return True if ``tailored`` is faithfully grounded in the master resume."""
-        ...

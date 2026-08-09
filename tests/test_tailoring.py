@@ -125,28 +125,3 @@ async def test_invalid_resume_content_raises(job: Job, settings: Settings) -> No
         await TailoringService(provider, settings).tailor(resume=bad_resume, job=job)
 
 
-class _RejectingJudge:
-    """Fake grounding judge that fails everything (exercises the judge branch)."""
-
-    async def is_grounded(self, *, tailored: str, source: str, corpus: str) -> bool:
-        return False
-
-
-async def test_llm_judge_can_demote_a_deterministically_grounded_bullet(
-    resume: Resume, job: Job
-) -> None:
-    settings = Settings(_env_file=None, grounding_use_llm_judge=True)
-    provider = FakeLLMProvider(
-        [
-            _response(
-                "Built a payments API handling 500 requests per second",
-                "Developed a payments API serving 500 requests per second",
-            )
-        ]
-    )
-    service = TailoringService(provider, settings, judge=_RejectingJudge())
-    result = await service.tailor(resume=resume, job=job)
-
-    # Passed the deterministic gate but the judge vetoed it.
-    assert result.is_grounded is False
-    assert result.bullets[0].grounded is False

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from cinch.core.config import LLMProviderName, Settings
 from cinch.providers.llm.anthropic import AnthropicProvider
-from cinch.providers.llm.base import GroundingJudge, LLMError, LLMProvider
+from cinch.providers.llm.base import LLMError, LLMProvider
 from cinch.providers.llm.fake import FakeLLMProvider
 from cinch.providers.llm.groq import GroqProvider
 
@@ -17,7 +17,6 @@ __all__ = [
     "AnthropicProvider",
     "FakeLLMProvider",
     "GroqProvider",
-    "GroundingJudge",
     "LLMError",
     "LLMProvider",
     "get_llm_provider",
