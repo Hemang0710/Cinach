@@ -138,7 +138,9 @@ def _section(pdf: _ResumePDF, title: str) -> None:
 
 def _paragraph(pdf: _ResumePDF, text: str) -> None:
     pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(_content_width(pdf), 5, _latin1(text))
+    # new_x=LMARGIN resets the cursor to the left margin; without it fpdf2 leaves
+    # it at the right of the last line, so the next cell renders off-page.
+    pdf.multi_cell(_content_width(pdf), 5, _latin1(text), new_x="LMARGIN", new_y="NEXT")
 
 
 def _experience(pdf: _ResumePDF, exp: ExperienceEntry, swap: dict[str, str]) -> None:
@@ -157,5 +159,7 @@ def _experience(pdf: _ResumePDF, exp: ExperienceEntry, swap: dict[str, str]) -> 
         pdf.set_font("Helvetica", "", 10)
         for bullet in exp.bullets:
             display = swap.get(bullet, bullet)
-            pdf.multi_cell(w, 5, _latin1(f"* {display}"))
+            # new_x=LMARGIN is essential: the default leaves the cursor at the line's
+            # right edge, so bullet 2+ would render off-page and get truncated.
+            pdf.multi_cell(w, 5, _latin1(f"* {display}"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1)
