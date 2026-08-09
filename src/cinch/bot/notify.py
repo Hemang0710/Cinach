@@ -44,7 +44,7 @@ async def send_application(
         chat_id=chat_id,
         text=format_application_message(job, tailoring),
         parse_mode=ParseMode.HTML,
-        reply_markup=approve_skip_markup(application_id),
+        reply_markup=approve_skip_markup(application_id, job.title, job.location),
         disable_web_page_preview=True,
     )
     if resume_pdf is not None:
