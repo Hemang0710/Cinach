@@ -164,8 +164,8 @@ def create_app(
     from cinch.api.email_webhook import build_email_webhook_router
 
     app.include_router(build_dashboard_router())
-    # Email webhook likewise mounts always; the route itself checks the shared
-    # secret and 503s if unset. Zapier/Make callers get a clean error.
+    # Email webhook likewise mounts always; the route resolves the per-user token
+    # in the X-Cinch-Webhook-Secret header (Phase 14) and 401s on a bad/missing one.
     app.include_router(build_email_webhook_router())
 
     return app

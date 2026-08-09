@@ -32,6 +32,9 @@ class User(DomainModel):
     id: UUID
     telegram_user_id: int
     telegram_chat_id: int
+    # Per-user inbound-email webhook token (Phase 14). ``None`` until the user
+    # runs ``/emailhook``. High-entropy; sent only in a Telegram DM, never logged.
+    email_webhook_token: str | None = None
     created_at: datetime
     updated_at: datetime
 

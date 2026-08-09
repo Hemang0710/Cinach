@@ -309,3 +309,127 @@ async def test_dashboard_command_fails_gracefully_when_unconfigured(db: Database
     message.reply_text.assert_awaited_once()
     assert "configured" in message.reply_text.await_args.args[0].lower()
     message.reply_html.assert_not_called()  # no link ever leaked
+
+
+# --- Phase 14: allowlist + /emailhook ---------------------------------------
+
+
+def _message_update(
+    *, from_user_id: int = OWNER_TG_ID, chat_id: int = CHAT_ID, chat_type: str = "private"
+) -> tuple[MagicMock, MagicMock]:
+    """A message-based update (for /start, /emailhook) with reply_html/reply_text."""
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+    message.reply_html = AsyncMock()
+    update = MagicMock()
+    update.message = message
+    update.effective_user = SimpleNamespace(id=from_user_id)
+    update.effective_chat = SimpleNamespace(id=chat_id, type=chat_type)
+    return update, message
+
+
+async def test_start_registers_allowlisted_user(db: Database) -> None:
+    settings = Settings(_env_file=None, allowed_telegram_ids=str(OWNER_TG_ID))
+    update, message = _message_update()
+    await handlers.start_command(update, _context(db, settings))
+
+    message.reply_html.assert_awaited_once()  # welcome sent
+    async with db.session() as session:
+        assert await UserRepository(session).get_by_telegram_id(OWNER_TG_ID) is not None
+
+
+async def test_start_rejects_non_allowlisted_user_without_registering(db: Database) -> None:
+    settings = Settings(_env_file=None, allowed_telegram_ids=str(OWNER_TG_ID))
+    update, message = _message_update(from_user_id=OTHER_TG_ID)
+    await handlers.start_command(update, _context(db, settings))
+
+    message.reply_text.assert_awaited_once()
+    assert "private" in message.reply_text.await_args.args[0].lower()
+    message.reply_html.assert_not_called()  # no welcome
+    async with db.session() as session:
+        assert await UserRepository(session).get_by_telegram_id(OTHER_TG_ID) is None  # no row
+
+
+async def test_empty_allowlist_is_open(db: Database) -> None:
+    settings = Settings(_env_file=None, allowed_telegram_ids="")
+    update, message = _message_update(from_user_id=OTHER_TG_ID)
+    await handlers.start_command(update, _context(db, settings))
+
+    message.reply_html.assert_awaited_once()
+    async with db.session() as session:
+        assert await UserRepository(session).get_by_telegram_id(OTHER_TG_ID) is not None
+
+
+async def test_document_upload_rejected_when_not_allowlisted(db: Database) -> None:
+    settings = Settings(_env_file=None, allowed_telegram_ids="1,2,3")  # OWNER not listed
+    update, message = _document_update(content=b'{"summary": "x"}')
+    await handlers.document_handler(update, _context(db, settings))
+
+    message.reply_text.assert_awaited_once()
+    assert "private" in message.reply_text.await_args.args[0].lower()
+    async with db.session() as session:
+        assert await UserRepository(session).get_by_telegram_id(OWNER_TG_ID) is None
+
+
+async def test_emailhook_issues_token_and_persists_it(db: Database) -> None:
+    settings = Settings(_env_file=None, telegram_webhook_url="https://cinch.example.com")
+    update, message = _message_update()
+    await handlers.emailhook_command(update, _context(db, settings))
+
+    message.reply_html.assert_awaited_once()
+    body = message.reply_html.await_args.args[0]
+    assert "cinch.example.com/webhook/email" in body
+    async with db.session() as session:
+        user = await UserRepository(session).get_by_telegram_id(OWNER_TG_ID)
+    assert user is not None and user.email_webhook_token is not None
+    assert user.email_webhook_token in body  # the exact token is shown to the user
+
+
+async def test_emailhook_refuses_non_private_chat(db: Database) -> None:
+    settings = Settings(_env_file=None)
+    update, message = _message_update(chat_type="group")
+    await handlers.emailhook_command(update, _context(db, settings))
+
+    message.reply_text.assert_awaited_once()
+    assert "direct message" in message.reply_text.await_args.args[0].lower()
+    message.reply_html.assert_not_called()  # secret never sent to a group
+    async with db.session() as session:
+        user = await UserRepository(session).get_by_telegram_id(OWNER_TG_ID)
+    assert user is None or user.email_webhook_token is None
+
+
+async def test_emailhook_rotates_existing_token(db: Database) -> None:
+    settings = Settings(_env_file=None)
+    update, message = _message_update()
+
+    await handlers.emailhook_command(update, _context(db, settings))
+    async with db.session() as session:
+        user1 = await UserRepository(session).get_by_telegram_id(OWNER_TG_ID)
+    assert user1 is not None
+    first = user1.email_webhook_token
+
+    await handlers.emailhook_command(update, _context(db, settings))
+    async with db.session() as session:
+        user2 = await UserRepository(session).get_by_telegram_id(OWNER_TG_ID)
+    assert user2 is not None
+    second = user2.email_webhook_token
+
+    assert first is not None and second is not None and first != second
+    assert "no longer works" in message.reply_html.await_args.args[0]  # rotation notice
+
+
+async def test_discover_rejected_when_not_allowlisted_creates_no_user(db: Database) -> None:
+    """A non-allowlisted /discover is refused before any user row or quota spend."""
+    settings = Settings(
+        _env_file=None,
+        allowed_telegram_ids="1,2,3",  # OWNER not listed
+        adzuna_app_id="a",
+        adzuna_app_key="k",
+    )
+    update, message = _command_update()
+    await handlers.discover_command(update, _context(db, settings))
+
+    message.reply_text.assert_awaited_once()
+    assert "private" in message.reply_text.await_args.args[0].lower()
+    async with db.session() as session:
+        assert await UserRepository(session).get_by_telegram_id(OWNER_TG_ID) is None

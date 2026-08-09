@@ -26,6 +26,7 @@ from cinch.bot.handlers import (
     demo_command,
     discover_command,
     document_handler,
+    emailhook_command,
     setresume_command,
     start_command,
 )
@@ -55,6 +56,7 @@ def build_bot_application(settings: Settings, db: Database) -> BotApp:
     app.add_handler(CommandHandler("discover", discover_command))
     app.add_handler(CommandHandler("dashboard", dashboard_command))
     app.add_handler(CommandHandler("accept", accept_command))
+    app.add_handler(CommandHandler("emailhook", emailhook_command))
     app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     if not settings.is_production:
         app.add_handler(CommandHandler("demo", demo_command))
