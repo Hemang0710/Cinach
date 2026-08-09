@@ -88,6 +88,7 @@ def create_app(
         if app.state.bot_app is not None:
             from cinch.api.scheduler import (
                 start_discovery_scheduler,
+                start_ghosted_scheduler,
                 start_submission_scheduler,
             )
 
@@ -96,6 +97,8 @@ def create_app(
                 schedulers.append(start_discovery_scheduler(app.state.db, settings, bot))
             if settings.submission_enabled:
                 schedulers.append(start_submission_scheduler(app.state.db, settings, bot))
+            if settings.ghosted_sweep_enabled:
+                schedulers.append(start_ghosted_scheduler(app.state.db, settings, bot))
         try:
             yield
         finally:

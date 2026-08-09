@@ -62,6 +62,7 @@ _STATUS_HEADLINE: dict[ApplicationStatus, str] = {
     ApplicationStatus.INTERVIEW_SCHEDULED: "📅 <b>Interview scheduled</b>",
     ApplicationStatus.OFFERED: "🎉 <b>Offer</b>",
     ApplicationStatus.REJECTED: "🚫 <b>Rejection</b>",
+    ApplicationStatus.GHOSTED: "👻 <b>No response</b>",
 }
 
 
@@ -73,3 +74,30 @@ def format_email_update_message(job: Job, status: ApplicationStatus, summary: st
     if summary:
         lines.append(escape(summary))
     return "\n".join(lines)
+
+
+def format_offer_card(job: Job) -> str:
+    """Render one open-offer card (shown by ``/accept`` with an Accept button)."""
+    title, company = escape(job.title), escape(job.company)
+    lines = [f"🎉 <b>Offer</b> — {title} at {company}."]
+    if job.location:
+        lines.append(escape(job.location))
+    lines.append(f'<a href="{escape(str(job.url))}">View posting</a>')
+    lines.append("")
+    lines.append("Tap Accept to mark this offer accepted.")
+    return "\n".join(lines)
+
+
+def accept_ack() -> str:
+    """Short confirmation shown after an offer is accepted."""
+    return "🎉 Offer accepted."
+
+
+def format_ghosted_message(job: Job, *, quiet_days: int) -> str:
+    """Render the terminal nudge sent when the sweep flags an application GHOSTED."""
+    title, company = escape(job.title), escape(job.company)
+    return (
+        f"👻 <b>No response</b> — {title} at {company}.\n"
+        f"No reply in {quiet_days}+ days, so I've marked this as ghosted. "
+        f"If they do reach out, forwarding the email will re-open it."
+    )

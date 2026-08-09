@@ -270,8 +270,9 @@ class ApplicationRepository(BaseRepository[ApplicationORM, Application]):
         Post-submit statuses only: an email can only be about an application the
         user has actually engaged with. Excludes DISCOVERED / TAILORED / SKIPPED /
         FAILED (nothing sent, so no reply possible) and terminal ACCEPTED /
-        REJECTED (already resolved). Ordered newest-first so ties break toward the
-        most recent engagement.
+        REJECTED (already resolved). GHOSTED is included so a late recruiter reply
+        re-advances a presumed-dead application. Ordered newest-first so ties break
+        toward the most recent engagement.
         """
         allowed = {
             ApplicationStatus.APPROVED,
@@ -280,6 +281,7 @@ class ApplicationRepository(BaseRepository[ApplicationORM, Application]):
             ApplicationStatus.INTERVIEW_INVITED,
             ApplicationStatus.INTERVIEW_SCHEDULED,
             ApplicationStatus.OFFERED,
+            ApplicationStatus.GHOSTED,
         }
         result = await self._session.scalars(
             select(ApplicationORM)
@@ -307,6 +309,65 @@ class ApplicationRepository(BaseRepository[ApplicationORM, Application]):
         orm.status = status
         orm.last_email_summary = summary
         orm.last_email_at = received_at
+        await self._session.flush()
+        await self._session.refresh(orm)
+        return self._to_domain(orm)
+
+    async def accept_offer(self, application_id: UUID) -> Application | None:
+        """Transition an ``OFFERED`` application to ``ACCEPTED`` (idempotent guard).
+
+        Only advances from ``OFFERED`` — any other current status (including an
+        already-``ACCEPTED`` row from a double-tap) returns ``None`` so the caller
+        treats it as a clean no-op rather than corrupting a resolved application.
+        """
+        orm = await self._session.get(ApplicationORM, application_id)
+        if orm is None or orm.status != ApplicationStatus.OFFERED:
+            return None
+        orm.status = ApplicationStatus.ACCEPTED
+        await self._session.flush()
+        await self._session.refresh(orm)
+        return self._to_domain(orm)
+
+    async def list_offered(self, user_id: UUID) -> list[Application]:
+        """Return this user's open offers (``OFFERED``), newest-engagement first."""
+        result = await self._session.scalars(
+            select(ApplicationORM)
+            .where(
+                ApplicationORM.user_id == user_id,
+                ApplicationORM.status == ApplicationStatus.OFFERED,
+            )
+            .order_by(ApplicationORM.updated_at.desc())
+        )
+        return [self._to_domain(orm) for orm in result.all()]
+
+    async def list_stale_submitted(self, before: datetime) -> list[Application]:
+        """Return ``SUBMITTED`` applications last touched before ``before``.
+
+        ``updated_at`` (``onupdate=func.now()``) is the "quiet since" clock: any
+        status change or inbound-email update bumps it, so an app that has been
+        silent since submission is exactly one whose ``updated_at`` has not moved.
+        Scoped to ``SUBMITTED`` only — never sweeps APPROVED / INTERVIEW_* / OFFERED.
+        """
+        result = await self._session.scalars(
+            select(ApplicationORM).where(
+                ApplicationORM.status == ApplicationStatus.SUBMITTED,
+                ApplicationORM.updated_at < before,
+            )
+        )
+        return [self._to_domain(orm) for orm in result.all()]
+
+    async def mark_ghosted(self, application_id: UUID, *, note: str) -> Application | None:
+        """Flag a stale ``SUBMITTED`` application as ``GHOSTED`` (idempotent guard).
+
+        Only transitions from ``SUBMITTED`` so a status the sweep's snapshot missed
+        (e.g. an email advanced it between the query and this write) is never
+        clobbered. The note is stored in ``submission_detail`` for the dashboard.
+        """
+        orm = await self._session.get(ApplicationORM, application_id)
+        if orm is None or orm.status != ApplicationStatus.SUBMITTED:
+            return None
+        orm.status = ApplicationStatus.GHOSTED
+        orm.submission_detail = note
         await self._session.flush()
         await self._session.refresh(orm)
         return self._to_domain(orm)

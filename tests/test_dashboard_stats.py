@@ -64,6 +64,45 @@ async def test_stats_counts_by_status_and_returns_rows(db: Database) -> None:
     assert sources == {JobSourceName.REMOTEOK, JobSourceName.ARBEITNOW}
 
 
+async def test_stats_row_surfaces_email_evidence(db: Database) -> None:
+    """An email-advanced application exposes its summary + timestamp for the dashboard."""
+    from datetime import UTC, datetime
+
+    async with db.session() as session:
+        user = await UserRepository(session).get_or_create(1, 1)
+        job = await JobRepository(session).get_or_create(
+            source=JobSourceName.ADZUNA,
+            external_id="e",
+            title="Staff Engineer",
+            company="Initech",
+            description="d",
+            url="https://ex.com/e",
+        )
+        app = await ApplicationRepository(session).get_or_create(
+            user_id=user.id, job_id=job.id, status=ApplicationStatus.SUBMITTED
+        )
+        received = datetime(2026, 8, 1, 9, 30, tzinfo=UTC)
+        await ApplicationRepository(session).record_email_update(
+            app.id,
+            status=ApplicationStatus.OFFERED,
+            summary="Offer extended — start date to be confirmed.",
+            received_at=received,
+        )
+
+    async with db.session() as session:
+        stats = await compute_dashboard_stats(session, user.id)
+
+    row = next(r for r in stats.rows if r.application_id == app.id)
+    # status/source must be real enums (not the raw ORM str) so the template's
+    # ``.value`` resolves and the badges are not blank.
+    assert row.status is ApplicationStatus.OFFERED
+    assert row.source is JobSourceName.ADZUNA
+    assert row.last_email_summary == "Offer extended — start date to be confirmed."
+    # SQLite drops tzinfo on round-trip; compare the wall-clock components.
+    assert row.last_email_at is not None
+    assert row.last_email_at.replace(tzinfo=None) == received.replace(tzinfo=None)
+
+
 async def test_stats_isolates_users(db: Database) -> None:
     """One user must never see another user's applications."""
     async with db.session() as session:
