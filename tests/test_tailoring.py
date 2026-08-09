@@ -123,5 +123,3 @@ async def test_invalid_resume_content_raises(job: Job, settings: Settings) -> No
     provider = FakeLLMProvider(["{}"])
     with pytest.raises(TailoringError):
         await TailoringService(provider, settings).tailor(resume=bad_resume, job=job)
-
-
