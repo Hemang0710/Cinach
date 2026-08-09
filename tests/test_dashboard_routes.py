@@ -115,6 +115,11 @@ async def test_full_flow_login_then_view_dashboard(
     # The seeded application's title and company appear on the page.
     assert "Senior Backend Engineer" in page.text
     assert "Acme Corp" in page.text
+    # Status + source badges render their labels (regression: the ORM returns a
+    # plain str for these columns, so the row must coerce back to the enum or the
+    # badges render blank).
+    assert "pending approval" in page.text  # status label (underscore→space)
+    assert "remoteok" in page.text  # source label
     # Header + polling script are present.
     assert "Cinch dashboard" in page.text
     assert "htmx.org" in page.text

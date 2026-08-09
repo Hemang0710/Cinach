@@ -12,15 +12,15 @@ User content (resume JSON, message text) is never logged.
 from __future__ import annotations
 
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from cinch.bot.keyboards import parse_callback
-from cinch.bot.messages import decision_ack
-from cinch.bot.notify import send_application
+from cinch.bot.keyboards import parse_accept_callback, parse_callback
+from cinch.bot.messages import accept_ack, decision_ack
+from cinch.bot.notify import send_application, send_offer_card
 from cinch.core.config import Settings
 from cinch.core.logging import get_logger
 from cinch.db.repositories import (
@@ -33,7 +33,7 @@ from cinch.db.session import Database
 from cinch.domain.enums import ApplicationStatus, JobSourceName
 from cinch.domain.models import TailoredBullet, TailoringResult
 from cinch.domain.resume import MasterResume
-from cinch.services.workflow import ApprovalService, DecisionOutcome
+from cinch.services.workflow import AcceptOutcome, ApprovalService, DecisionOutcome
 
 logger = get_logger(__name__)
 
@@ -273,11 +273,49 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def accept_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/accept — list the caller's open offers, each with an Accept button.
+
+    Offers are addressed by inline button (not a typed id): callback data carries
+    the application id, and the acceptance is authorized + made idempotent in the
+    service layer, exactly like Approve/Skip.
+    """
+    message, user, chat = update.message, update.effective_user, update.effective_chat
+    if message is None or user is None or chat is None:
+        return
+
+    async with _db(context).session() as session:
+        owner = await UserRepository(session).get_or_create(user.id, chat.id)
+        offers = await ApplicationRepository(session).list_offered(owner.id)
+        jobs = {offer.id: await JobRepository(session).get(offer.job_id) for offer in offers}
+
+    if not offers:
+        await message.reply_text("You have no open offers to accept.")
+        return
+
+    for offer in offers:
+        job = jobs.get(offer.id)
+        if job is None:
+            continue
+        await send_offer_card(context.bot, chat_id=chat.id, job=job, application_id=offer.id)
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Approve/Skip callback — authorize via the service, then update the message."""
+    """Route an inline-button press — accept, or approve/skip — through the service."""
     query = update.callback_query
     if query is None or query.data is None:
         return
+
+    # Accept presses carry their own namespace; try that first, else approve/skip.
+    try:
+        accept_id = parse_accept_callback(query.data)
+    except ValueError:
+        await query.answer("Unrecognized action.")
+        return
+    if accept_id is not None:
+        await _handle_accept(query, context, accept_id)
+        return
+
     try:
         decision, application_id = parse_callback(query.data)
     except ValueError:
@@ -298,6 +336,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.answer("Already handled.")
         await query.edit_message_reply_markup(reply_markup=None)
     elif outcome is DecisionOutcome.UNAUTHORIZED:
+        # Do not modify the message; only the owner may act on it.
+        await query.answer("You can't act on this application.", show_alert=True)
+    else:  # NOT_FOUND
+        await query.answer("This application no longer exists.")
+
+
+async def _handle_accept(
+    query: Any, context: ContextTypes.DEFAULT_TYPE, application_id: UUID
+) -> None:
+    """Apply an offer-accept callback and update the message accordingly."""
+    async with _db(context).session() as session:
+        outcome = await ApprovalService(session).accept(
+            telegram_user_id=query.from_user.id,
+            application_id=application_id,
+        )
+
+    if outcome is AcceptOutcome.ACCEPTED:
+        await query.answer(accept_ack())
+        await query.edit_message_reply_markup(reply_markup=None)
+    elif outcome is AcceptOutcome.NOT_OFFERED:
+        await query.answer("Already handled.")
+        await query.edit_message_reply_markup(reply_markup=None)
+    elif outcome is AcceptOutcome.UNAUTHORIZED:
         # Do not modify the message; only the owner may act on it.
         await query.answer("You can't act on this application.", show_alert=True)
     else:  # NOT_FOUND

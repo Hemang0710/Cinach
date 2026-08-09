@@ -20,6 +20,7 @@ from telegram.ext import (
 )
 
 from cinch.bot.handlers import (
+    accept_command,
     callback_handler,
     dashboard_command,
     demo_command,
@@ -53,6 +54,7 @@ def build_bot_application(settings: Settings, db: Database) -> BotApp:
     app.add_handler(CommandHandler("setresume", setresume_command))
     app.add_handler(CommandHandler("discover", discover_command))
     app.add_handler(CommandHandler("dashboard", dashboard_command))
+    app.add_handler(CommandHandler("accept", accept_command))
     app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     if not settings.is_production:
         app.add_handler(CommandHandler("demo", demo_command))

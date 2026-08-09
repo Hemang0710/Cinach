@@ -16,8 +16,13 @@ from cinch.db.session import Database
 
 @pytest.fixture
 def settings() -> Settings:
-    """Deterministic test settings (no reliance on the ambient environment)."""
-    return Settings(environment="local", log_json=False)
+    """Deterministic test settings (no reliance on the ambient environment).
+
+    ``_env_file=None`` pins the fixture to explicit values only — otherwise a
+    developer's local ``.env`` (e.g. a malformed ``ENCRYPTION_KEY``) leaks in and
+    fails app construction, which validates the key eagerly.
+    """
+    return Settings(_env_file=None, environment="local", log_json=False)
 
 
 @pytest.fixture
