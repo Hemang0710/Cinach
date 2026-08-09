@@ -433,3 +433,16 @@ async def test_discover_rejected_when_not_allowlisted_creates_no_user(db: Databa
     assert "private" in message.reply_text.await_args.args[0].lower()
     async with db.session() as session:
         assert await UserRepository(session).get_by_telegram_id(OWNER_TG_ID) is None
+
+
+def test_command_menu_matches_registered_handlers() -> None:
+    """The "/" menu must stay in sync with the CommandHandlers — drift means a
+    command works but is invisible in the menu, or a menu entry does nothing.
+    `demo` is dev-only (appended in post_init), so it's excluded from the menu list."""
+    from cinch.bot.application import _COMMAND_MENU, build_bot_application
+
+    settings = Settings(_env_file=None, telegram_bot_token="X:Y", environment="local")
+    app = build_bot_application(settings, Database("sqlite+aiosqlite:///:memory:"))
+    registered = {c for h in app.handlers[0] if hasattr(h, "commands") for c in h.commands}
+    menu = {b.command for b in _COMMAND_MENU}
+    assert menu == registered - {"demo"}
