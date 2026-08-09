@@ -19,7 +19,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from cinch.bot.keyboards import parse_accept_callback, parse_callback
-from cinch.bot.messages import accept_ack, decision_ack
+from cinch.bot.messages import (
+    NOT_AUTHORIZED,
+    accept_ack,
+    decision_ack,
+    format_emailhook_setup,
+)
 from cinch.bot.notify import send_application, send_offer_card
 from cinch.core.config import Settings
 from cinch.core.logging import get_logger
@@ -61,10 +66,36 @@ def _db(context: ContextTypes.DEFAULT_TYPE) -> Database:
     return cast(Database, context.bot_data["db"])
 
 
+def _settings(context: ContextTypes.DEFAULT_TYPE) -> Settings:
+    return cast(Settings, context.bot_data["settings"])
+
+
+async def _reject_unregistered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Gate a *registration* entry point against the allowlist (Phase 14).
+
+    Returns ``True`` (and sends a polite refusal) when the caller may **not**
+    register, so the handler should stop. An empty ``ALLOWED_TELEGRAM_IDS`` means
+    the bot is open and this always returns ``False``. Only guards the two entry
+    points that create a user (``/start``, resume upload); existing users hit no
+    gate on their other commands.
+    """
+    user = update.effective_user
+    if user is None:
+        return True  # unidentifiable caller — refuse quietly
+    if _settings(context).is_telegram_id_allowed(user.id):
+        return False
+    logger.info("registration_denied", telegram_user_id=user.id)
+    if update.message is not None:
+        await update.message.reply_text(NOT_AUTHORIZED)
+    return True
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/start — register the user (idempotent) and explain the flow."""
     user, chat = update.effective_user, update.effective_chat
     if user is None or chat is None or update.message is None:
+        return
+    if await _reject_unregistered(update, context):
         return
     async with _db(context).session() as session:
         await UserRepository(session).get_or_create(user.id, chat.id)
@@ -81,6 +112,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Accept a ``.json`` or ``.pdf`` master-resume upload; validate and store it."""
     message, user, chat = update.message, update.effective_user, update.effective_chat
     if message is None or message.document is None or user is None or chat is None:
+        return
+    if await _reject_unregistered(update, context):
         return
     document = message.document
     filename = (document.file_name or "").lower()
@@ -206,6 +239,8 @@ async def discover_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     message, user, chat = update.message, update.effective_user, update.effective_chat
     if message is None or user is None or chat is None:
         return
+    if await _reject_unregistered(update, context):
+        return
 
     settings = cast(Settings, context.bot_data["settings"])
     if not (settings.adzuna_app_id and settings.adzuna_app_key):
@@ -253,6 +288,8 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     message, user, chat = update.message, update.effective_user, update.effective_chat
     if message is None or user is None or chat is None:
         return
+    if await _reject_unregistered(update, context):
+        return
 
     settings = cast(Settings, context.bot_data["settings"])
     async with _db(context).session() as session:
@@ -273,6 +310,35 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def emailhook_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/emailhook — DM the caller their per-user inbound-email webhook token (Phase 14).
+
+    Generates the token on first use, rotates it on repeat (invalidating the old
+    one). The token is a long-lived secret, so this only works in a private chat —
+    a group would expose it to every member. Allowlist-gated like registration.
+    """
+    message, user, chat = update.message, update.effective_user, update.effective_chat
+    if message is None or user is None or chat is None:
+        return
+    if await _reject_unregistered(update, context):
+        return
+    if chat.type != "private":
+        await message.reply_text("Please run /emailhook in a direct message — it returns a secret.")
+        return
+
+    settings = _settings(context)
+    async with _db(context).session() as session:
+        repo = UserRepository(session)
+        owner = await repo.get_or_create(user.id, chat.id)
+        rotating = owner.email_webhook_token is not None
+        token = await repo.rotate_email_webhook_token(owner.id)
+
+    base = (settings.telegram_webhook_url or "").rstrip("/")
+    url = f"{base}/webhook/email" if base else "https://<your-cinch-domain>/webhook/email"
+    logger.info("emailhook_issued", telegram_user_id=user.id, rotated=rotating)
+    await message.reply_html(format_emailhook_setup(url=url, token=token, rotating=rotating))
+
+
 async def accept_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/accept — list the caller's open offers, each with an Accept button.
 
@@ -282,6 +348,8 @@ async def accept_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """
     message, user, chat = update.message, update.effective_user, update.effective_chat
     if message is None or user is None or chat is None:
+        return
+    if await _reject_unregistered(update, context):
         return
 
     async with _db(context).session() as session:

@@ -8,6 +8,7 @@ insert surfaces as a clean re-fetch rather than poisoning the transaction.
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 from typing import Generic, TypeVar
 from uuid import UUID
@@ -77,6 +78,33 @@ class UserRepository(BaseRepository[UserORM, User]):
             return refetched
         await self._session.refresh(orm)
         return self._to_domain(orm)
+
+    async def get_by_email_webhook_token(self, token: str) -> User | None:
+        """Return the user owning ``token`` (Phase 14 email routing), or ``None``.
+
+        The token is high-entropy (``secrets.token_urlsafe(32)``), so an indexed
+        equality lookup is acceptable auth — like an API key. An empty token never
+        matches (the column is nullable; we don't want ``NULL``-ish false hits).
+        """
+        if not token:
+            return None
+        orm = await self._session.scalar(
+            select(UserORM).where(UserORM.email_webhook_token == token)
+        )
+        return self._to_domain(orm) if orm is not None else None
+
+    async def rotate_email_webhook_token(self, user_id: UUID) -> str:
+        """Generate, persist, and return a fresh email-webhook token for ``user_id``.
+
+        Rotating invalidates any previous token (the column is unique). Raises
+        ``ValueError`` if the user doesn't exist.
+        """
+        orm = await self._session.get(UserORM, user_id)
+        if orm is None:
+            raise ValueError(f"user {user_id} not found")
+        orm.email_webhook_token = secrets.token_urlsafe(32)
+        await self._session.flush()
+        return orm.email_webhook_token
 
 
 class ResumeRepository(BaseRepository[ResumeORM, Resume]):

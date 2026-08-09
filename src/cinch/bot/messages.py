@@ -93,6 +93,38 @@ def accept_ack() -> str:
     return "🎉 Offer accepted."
 
 
+# Shown when a Telegram id not on ALLOWED_TELEGRAM_IDS tries to register.
+NOT_AUTHORIZED = (
+    "⛔ This bot is private. Your account isn't on its allowlist, so I can't "
+    "register you. If you run this instance, add your Telegram id to "
+    "ALLOWED_TELEGRAM_IDS."
+)
+
+
+def format_emailhook_setup(*, url: str, token: str, rotating: bool) -> str:
+    """Render the ``/emailhook`` DM: the per-user webhook token + Zapier setup.
+
+    ``token`` is a secret, so callers must only ever send this in a private chat.
+    """
+    intro = (
+        "🔁 <b>New email webhook token</b> (your old one no longer works):"
+        if rotating
+        else "📧 <b>Your inbound-email webhook</b>"
+    )
+    return (
+        f"{intro}\n\n"
+        "Point your Zapier / Make automation at Cinch so interview, offer, and "
+        "rejection emails advance your applications automatically:\n\n"
+        f"• <b>URL</b>: <code>{escape(url)}</code>\n"
+        "• <b>Method</b>: POST · <b>Payload type</b>: JSON\n"
+        "• <b>Header</b>: <code>X-Cinch-Webhook-Secret: "
+        f"{escape(token)}</code>\n"
+        "• <b>Body</b>: from_email, from_name, subject, body_text\n\n"
+        "⚠️ Treat this token like a password — anyone with it can post emails as "
+        "you. Run /emailhook again any time to rotate it."
+    )
+
+
 def format_ghosted_message(job: Job, *, quiet_days: int) -> str:
     """Render the terminal nudge sent when the sweep flags an application GHOSTED."""
     title, company = escape(job.title), escape(job.company)

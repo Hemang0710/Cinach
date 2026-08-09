@@ -37,6 +37,12 @@ class UserORM(TimestampMixin, Base):
     # account maps to exactly one user.
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Per-user inbound-email webhook token (Phase 14). Unique + indexed so the
+    # email webhook resolves token → user in one lookup. Nullable: existing users
+    # have none until they run ``/emailhook``.
+    email_webhook_token: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
 
     resumes: Mapped[list[ResumeORM]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

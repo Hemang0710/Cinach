@@ -21,14 +21,15 @@ The route:
      "informational email, no state change" is a *successful* outcome, not an
      error, so we don't provoke retries on quiet emails.
 
-There is intentionally NO per-user auth on the URL itself: the secret is a
-shared bearer between the Zapier account and Cinch. In a multi-tenant Cinch
-this would be per-user secrets, but the current deploy has one owner user.
+Auth + routing (Phase 14): the ``X-Cinch-Webhook-Secret`` header carries a
+**per-user token** (issued by the bot's ``/emailhook`` command). The route
+resolves token → user and matches only within that user's applications, so a
+multi-tenant deploy routes each user's mail to their own pipeline. A missing or
+unknown token is a clean 401 (4xx ⇒ Zapier does not retry).
 """
 
 from __future__ import annotations
 
-import hmac
 from typing import Any
 from uuid import UUID
 
@@ -38,7 +39,7 @@ from sqlalchemy import select
 
 from cinch.core.config import Settings
 from cinch.core.logging import get_logger
-from cinch.db.models import JobORM, UserORM
+from cinch.db.models import JobORM
 from cinch.db.repositories import ApplicationRepository, JobRepository, UserRepository
 from cinch.db.session import Database
 from cinch.providers.llm import get_llm_provider
@@ -53,14 +54,6 @@ logger = get_logger(__name__)
 WEBHOOK_SECRET_HEADER = "X-Cinch-Webhook-Secret"  # noqa: S105 - header NAME, not a secret
 
 
-def _check_secret(header_value: str | None, configured: str | None) -> None:
-    """Constant-time compare the header against the configured secret."""
-    if not configured:
-        raise HTTPException(status_code=503, detail="email webhook not configured")
-    if not header_value or not hmac.compare_digest(header_value, configured):
-        raise HTTPException(status_code=401, detail="invalid webhook secret")
-
-
 def build_email_webhook_router() -> APIRouter:
     """Construct the ``POST /webhook/email`` router. Mounted by the app factory."""
     router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -73,11 +66,13 @@ def build_email_webhook_router() -> APIRouter:
     ) -> JSONResponse:
         """Classify one inbound email and (if applicable) advance an application."""
         settings: Settings = request.app.state.settings
-        _check_secret(x_cinch_webhook_secret, settings.interview_webhook_secret)
 
         db: Database | None = request.app.state.db
         if db is None:
             raise HTTPException(status_code=503, detail="database not configured")
+
+        if not x_cinch_webhook_secret:
+            raise HTTPException(status_code=401, detail="missing webhook token")
 
         # Bot is optional at this layer — an email may arrive before the bot is
         # wired up (tests). If present, we DM the user; if absent, we still update
@@ -85,11 +80,11 @@ def build_email_webhook_router() -> APIRouter:
         bot_app: Any | None = request.app.state.bot_app
         bot = bot_app.bot if bot_app is not None else None
 
-        # Assemble what the classifier needs, and dispatch it.
+        # Resolve the per-user token, then assemble what the classifier needs.
         async with db.session() as session:
-            owner = await _pick_user(session)
+            owner = await UserRepository(session).get_by_email_webhook_token(x_cinch_webhook_secret)
             if owner is None:
-                return _reply(_no_user_body())
+                raise HTTPException(status_code=401, detail="invalid webhook token")
             candidates = await ApplicationRepository(session).list_candidates_for_email_match(
                 owner.id
             )
@@ -144,15 +139,6 @@ def build_email_webhook_router() -> APIRouter:
     return router
 
 
-async def _pick_user(session: Any) -> UserORM | None:
-    """Single-owner deployment: match against the first (oldest) registered user."""
-    # This is deliberately simple. A multi-tenant deployment would need to pass
-    # a per-user secret and look the user up by that.
-    result = await session.scalars(select(UserORM).order_by(UserORM.created_at.asc()).limit(1))
-    first: UserORM | None = result.first()
-    return first
-
-
 async def _jobs_by_id_for_apps(session: Any, job_ids: list[UUID]) -> dict[str, str]:
     """Batch-load ``job_id`` → ``company`` for the candidate applications.
 
@@ -167,10 +153,6 @@ async def _jobs_by_id_for_apps(session: Any, job_ids: list[UUID]) -> dict[str, s
 
 def _reply(body: dict[str, Any]) -> JSONResponse:
     return JSONResponse(body, status_code=200)
-
-
-def _no_user_body() -> dict[str, Any]:
-    return {"ok": True, "action": "ignored", "reason": "no registered user on this deploy"}
 
 
 def _no_action_body(result: EmailClassificationResult) -> dict[str, Any]:

@@ -8,11 +8,15 @@ see ``.env.example`` for the full list of supported variables with placeholders.
 from __future__ import annotations
 
 from enum import StrEnum
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from cinch.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class LLMProviderName(StrEnum):
@@ -52,6 +56,12 @@ class Settings(BaseSettings):
 
     # --- Telegram ----------------------------------------------------------
     telegram_bot_token: str | None = None
+    # Comma-separated Telegram user ids permitted to register (Phase 14). EMPTY
+    # means OPEN — anyone who messages the bot may register (backward-compatible).
+    # Set it to lock a self-hosted deploy to its owner(s) so strangers can't spend
+    # your LLM / job-API quota. Only gates *registration*; existing users are
+    # unaffected. See ``is_telegram_id_allowed``.
+    allowed_telegram_ids: str = ""
     # Secret token echoed in the X-Telegram-Bot-Api-Secret-Token header and
     # verified (constant-time) on the webhook route.
     telegram_webhook_secret: str | None = None
@@ -117,12 +127,10 @@ class Settings(BaseSettings):
     ghosted_after_days: int = 30
     ghosted_sweep_interval_minutes: int = 1440
 
-    # --- Email webhook (Phase 11) ------------------------------------------
-    # Shared secret for POST /webhook/email — must match the header Zapier/Make
-    # sends (X-Cinch-Webhook-Secret). When unset the webhook route returns 503
-    # and the LLM classifier is never invoked. Distinct from the Telegram
-    # webhook secret so the two rotate independently.
-    interview_webhook_secret: str | None = None
+    # --- Email webhook (Phase 11 → per-user in Phase 14) -------------------
+    # Auth for POST /webhook/email is now a PER-USER token in the
+    # X-Cinch-Webhook-Secret header (issued by the bot's /emailhook command and
+    # stored on the user row) — there is no global shared secret to configure.
     # Deterministic pre-LLM noise gate (Phase 13): drops job-alert digests and
     # marketing newsletters before the classifier runs — saving an LLM call and
     # removing false-advance risk. ON by default (the rules are high-precision);
@@ -157,6 +165,29 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """True when running in the production environment."""
         return self.environment == "production"
+
+    @cached_property
+    def allowed_telegram_id_set(self) -> frozenset[int]:
+        """Parsed ``allowed_telegram_ids`` as a set of ints (empty ⇒ open bot).
+
+        Tolerant of whitespace and stray commas; a non-integer entry is skipped
+        with a warning rather than crashing startup on a fat-fingered config.
+        """
+        ids: set[int] = set()
+        for raw in self.allowed_telegram_ids.split(","):
+            token = raw.strip()
+            if not token:
+                continue
+            try:
+                ids.add(int(token))
+            except ValueError:
+                logger.warning("ignoring non-integer ALLOWED_TELEGRAM_IDS entry", entry=token)
+        return frozenset(ids)
+
+    def is_telegram_id_allowed(self, telegram_user_id: int) -> bool:
+        """Whether ``telegram_user_id`` may register. Empty allowlist ⇒ always True."""
+        allowed = self.allowed_telegram_id_set
+        return not allowed or telegram_user_id in allowed
 
 
 @lru_cache(maxsize=1)
