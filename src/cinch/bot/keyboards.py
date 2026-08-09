@@ -8,6 +8,7 @@ rejected rather than silently mishandled.
 
 from __future__ import annotations
 
+from urllib.parse import quote_plus
 from uuid import UUID
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,9 +18,32 @@ from cinch.services.workflow import ApprovalDecision
 _SEP = ":"
 _ACCEPT_ACTION = "accept"  # Phase 12 — offer-acceptance callback namespace
 
+_LINKEDIN_JOBS = "https://www.linkedin.com/jobs/search/"
+_INDEED_JOBS = "https://www.indeed.com/jobs"
 
-def approve_skip_markup(application_id: UUID) -> InlineKeyboardMarkup:
-    """Build the two-button Approve/Skip keyboard for an application."""
+
+def _apply_handoff_row(job_title: str, location: str | None) -> list[InlineKeyboardButton]:
+    """URL buttons opening a pre-filled job SEARCH on LinkedIn / Indeed.
+
+    Apply-ready handoff *without* scraping or automation: these are the public
+    search URLs a user would type themselves. We can't deep-link the exact posting
+    for a discovered job without scraping those sites, so we hand off a ready-made
+    search for the same role+location and the user applies there directly.
+    """
+    kw = quote_plus(job_title)
+    loc = quote_plus(location) if location else ""
+    linkedin = f"{_LINKEDIN_JOBS}?keywords={kw}" + (f"&location={loc}" if loc else "")
+    indeed = f"{_INDEED_JOBS}?q={kw}" + (f"&l={loc}" if loc else "")
+    return [
+        InlineKeyboardButton("🔎 Find on LinkedIn", url=linkedin),
+        InlineKeyboardButton("🔎 Find on Indeed", url=indeed),
+    ]
+
+
+def approve_skip_markup(
+    application_id: UUID, job_title: str, location: str | None = None
+) -> InlineKeyboardMarkup:
+    """Approve/Skip keyboard, plus a LinkedIn/Indeed apply-handoff row."""
     return InlineKeyboardMarkup(
         [
             [
@@ -31,7 +55,8 @@ def approve_skip_markup(application_id: UUID) -> InlineKeyboardMarkup:
                     "⏭️ Skip",
                     callback_data=f"{ApprovalDecision.SKIP.value}{_SEP}{application_id}",
                 ),
-            ]
+            ],
+            _apply_handoff_row(job_title, location),
         ]
     )
 
