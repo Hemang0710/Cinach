@@ -19,7 +19,6 @@ from cinch.providers.jobs import (
 from cinch.providers.llm import (
     AnthropicProvider,
     FakeLLMProvider,
-    GroundingJudge,
     LLMError,
     LLMProvider,
     get_llm_provider,
@@ -30,7 +29,6 @@ __all__ = [
     "AnthropicProvider",
     "FakeJobSource",
     "FakeLLMProvider",
-    "GroundingJudge",
     "JobQuery",
     "JobSource",
     "JobSourceError",

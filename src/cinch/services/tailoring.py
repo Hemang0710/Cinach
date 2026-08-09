@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 from cinch.core.config import Settings
 from cinch.domain.models import Job, Resume, TailoredBullet, TailoringResult
 from cinch.domain.resume import MasterResume
-from cinch.providers.llm.base import GroundingJudge, LLMProvider
+from cinch.providers.llm.base import LLMProvider
 from cinch.services import prompts
 from cinch.services.grounding import GroundingValidator
 
@@ -45,16 +45,9 @@ def _extract_json_object(text: str) -> str:
 class TailoringService:
     """Tailors a master resume to a job, with anti-fabrication grounding."""
 
-    def __init__(
-        self,
-        provider: LLMProvider,
-        settings: Settings,
-        *,
-        judge: GroundingJudge | None = None,
-    ) -> None:
+    def __init__(self, provider: LLMProvider, settings: Settings) -> None:
         self._provider = provider
         self._settings = settings
-        self._judge = judge
 
     async def tailor(self, *, resume: Resume, job: Job) -> TailoringResult:
         """Produce a :class:`TailoringResult` for ``resume`` against ``job``.
@@ -87,12 +80,6 @@ class TailoringService:
         for item in parsed.bullets:
             check = validator.check(tailored_text=item.tailored_text, source_text=item.source_text)
             grounded = check.grounded
-            if grounded and self._judge is not None and self._settings.grounding_use_llm_judge:
-                grounded = await self._judge.is_grounded(
-                    tailored=item.tailored_text,
-                    source=item.source_text,
-                    corpus=master.grounding_text(),
-                )
             bullets.append(
                 TailoredBullet(
                     text=item.tailored_text,

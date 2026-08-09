@@ -86,9 +86,6 @@ class Settings(BaseSettings):
     # tailoring faithfulness is steered via the prompt, not a sampling knob.
     llm_model: str = "claude-opus-4-8"
     llm_max_tokens: int = 4096
-    # Optional second-layer LLM grounding judge (off by default). The deterministic
-    # validator is always the hard gate; the judge only adds semantic checks.
-    grounding_use_llm_judge: bool = False
 
     # --- Job sources -------------------------------------------------------
     # Comma-separated names from ``JobSourceName``. Common values:
