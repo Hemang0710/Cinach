@@ -12,6 +12,8 @@ ignored — the master bullet is rendered as-is — so nothing invented can slip
 
 from __future__ import annotations
 
+import re
+
 from fpdf import FPDF
 
 from cinch.domain.models import TailoredBullet, TailoringResult
@@ -106,6 +108,16 @@ def render_master_resume_pdf(
             )
 
     return bytes(pdf.output())
+
+
+def resume_filename(name: str | None, company: str | None) -> str:
+    """``Hemang_Patel_Acme_Corp.pdf`` — so the user can tell which résumé is which."""
+
+    def slug(text: str | None) -> str:
+        return re.sub(r"[^A-Za-z0-9]+", "_", text or "").strip("_")
+
+    parts = [p for p in (slug(name), slug(company)) if p]
+    return ("_".join(parts) or "resume") + ".pdf"
 
 
 def _content_width(pdf: FPDF) -> float:

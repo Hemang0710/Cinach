@@ -33,12 +33,14 @@ async def send_application(
     tailoring: TailoringResult,
     application_id: UUID,
     resume_pdf: bytes | None = None,
+    resume_filename: str = "resume.pdf",
 ) -> None:
     """Send the application card (job + highlights) with Approve/Skip buttons.
 
     When ``resume_pdf`` is provided (Phase 9), the tailored résumé is sent as a
     ``.pdf`` attachment right after the card so the user can preview exactly what
     would be submitted. If it isn't provided, only the card is sent — no failure.
+    ``resume_filename`` names that attachment (e.g. ``Hemang_Patel_Acme.pdf``).
     """
     await bot.send_message(
         chat_id=chat_id,
@@ -51,7 +53,7 @@ async def send_application(
         await bot.send_document(
             chat_id=chat_id,
             document=resume_pdf,
-            filename="resume.pdf",
+            filename=resume_filename,
             caption="Your résumé, tailored for this job.",
             disable_content_type_detection=False,
         )
@@ -75,6 +77,7 @@ class TelegramNotifier:
         tailoring: TailoringResult,
         application_id: UUID,
         resume_pdf: bytes | None = None,
+        resume_filename: str = "resume.pdf",
     ) -> None:
         """Deliver a tailored application via Telegram (rate-limited by AIORateLimiter)."""
         await send_application(
@@ -84,6 +87,7 @@ class TelegramNotifier:
             tailoring=tailoring,
             application_id=application_id,
             resume_pdf=resume_pdf,
+            resume_filename=resume_filename,
         )
 
 

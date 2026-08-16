@@ -51,6 +51,7 @@ class JobNotifier(Protocol):
         tailoring: TailoringResult,
         application_id: UUID,
         resume_pdf: bytes | None = None,
+        resume_filename: str = "resume.pdf",
     ) -> None:
         """Send the job + tailored resume with Approve/Skip controls.
 
@@ -176,6 +177,8 @@ class DiscoveryService:
         raw: RawJob,
         summary: DiscoverySummary,
     ) -> None:
+        from cinch.services.resume_pdf import resume_filename
+
         # Multi-source pipelines set ``raw.source`` per posting (each adapter stamps
         # its own name); fall back to the calling ``JobSource.source_name`` for
         # single-source callers that pre-date Phase 7.
@@ -206,6 +209,7 @@ class DiscoveryService:
             tailoring=tailoring,
             application_id=application.id,
             resume_pdf=resume_pdf,
+            resume_filename=resume_filename(master.name, job.company),
         )
         # Mark delivered only after a successful send, so a failure retries next cycle.
         await self._applications.set_status(application.id, ApplicationStatus.PENDING_APPROVAL)
