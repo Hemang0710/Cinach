@@ -44,6 +44,7 @@ class RecordingNotifier:
         tailoring: TailoringResult,
         application_id: UUID,
         resume_pdf: bytes | None = None,
+        resume_filename: str = "resume.pdf",
     ) -> None:
         self.sent.append((chat_id, application_id, resume_pdf is not None))
 
